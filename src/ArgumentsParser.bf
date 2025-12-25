@@ -1,0 +1,6 @@
+namespace HushBindingGen;
+
+class ArgumentsParser {
+	
+}
+

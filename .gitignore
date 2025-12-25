@@ -1,0 +1,16 @@
+# Build directories
+build/
+recovery/
+
+# IDE files
+*.user
+*.suo
+*.vcxproj*
+*.vcxproj.filters*
+
+# Debug files
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.obj
