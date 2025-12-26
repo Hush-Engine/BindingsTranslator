@@ -1,5 +1,6 @@
 namespace HushBindingGen;
 using System;
+using System.Collections;
 
 enum ETypeKind {
 	PRIMITIVE,
@@ -65,6 +66,7 @@ struct FunctionProps {
 
 class CParser {
 	const int64 MAX_FIELD_NAME = 128;
+	private Dictionary<String, StructDescription> m_registeredStructsByName = new Dictionary<String, StructDescription>() ~ delete _;
 	
 	private bool IsValidIdentifierChar(char8 c) {
 		return c.IsLetterOrDigit || c == '_';
@@ -132,6 +134,17 @@ class CParser {
 		default:
 			typeInfo.type = ECType.STRUCT;
 			typeInfo.kind = ETypeKind.STRUCT;
+			let key = scope String(strippedType);
+			String* match = null;
+			StructDescription* structRef = null;
+			// TODO: DO NOT CHECK struct register if the pointer level is >= 1 (forward declaration)
+			bool contains = this.m_registeredStructsByName.TryGetRef(key, out match, out structRef);
+			if (!contains) {
+				Console.WriteLine($"Could not find struct by the name of {key}, make sure it is declared before its usage!");
+				return EError.UNRECOGNIZED_TYPE;
+			}
+			
+			typeInfo.size = structRef.size;
 			break;
 		}
 		return EError.OK;
@@ -183,7 +196,8 @@ class CParser {
 				else {
 					// We have a type
 					ref Argument field = ref structDesc.fields[structDesc.fieldCount];
-					TryParseType(wordBuffer, ref field.typeInfo);
+					EError err = TryParseType(wordBuffer, ref field.typeInfo);
+					if (err != EError.OK) return err;
 				}
 				wordBuffer.Clear();
 			}
@@ -193,14 +207,21 @@ class CParser {
 			prevChar = line[i];
 		}
 
+		ref Argument field = ref structDesc.fields[structDesc.fieldCount];
+		
+		if (pointerLevel > 0) {
+			field.typeInfo.pointerLevel = pointerLevel;
+			field.typeInfo.size = sizeof(void*);
+		}
+		
 		if (!hasSemicolon) {
 			return EError.FORMAT_ERROR;
 		}
 
 		if (!wordBuffer.IsEmpty) {
 			// We have a pending type
-			ref Argument field = ref structDesc.fields[structDesc.fieldCount];
-			TryParseType(wordBuffer, ref field.typeInfo);
+			EError err = TryParseType(wordBuffer, ref field.typeInfo);
+			if (err != EError.OK) return err;
 		}
 		return EError.OK;
 	}
@@ -208,18 +229,13 @@ class CParser {
 	/// @brief Parses a struct description, the string needs to be identified (from typedef struct to final enclosing curly bracket)
 	public EError TryParseStruct(out StructDescription structDesc, StringView structRegion) {
 		structDesc = StructDescription{};
-		// typedef struct DVector4 {
-		// 	double x;
-		// 	double y;
-		// 	double z; 
-		// 	double w;
-		// } DVector4;
 		// Any given struct will be parsed by identifying the substr "typedef struct"
 		uint32 index = 0;
 		uint32 pendingBraces = 0;
 		for (StringView part in structRegion.Split("\n")) {
 			if (index != 0) {
 				EError err = TryParseStructField(ref structDesc, part);
+				if (err != EError.OK) return err;
 				index++;
 				continue;
 			}
@@ -239,6 +255,9 @@ class CParser {
 			name.CopyTo(structDesc.name);
 			index++;
 		}
+
+		let key = scope String(&structDesc.name[0]);
+		this.m_registeredStructsByName[key] = structDesc;
 
 		return EError.OK;
 	}

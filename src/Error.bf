@@ -2,5 +2,6 @@ namespace HushBindingGen;
 
 enum EError {
 	OK = 0,
-	FORMAT_ERROR
+	FORMAT_ERROR,
+	UNRECOGNIZED_TYPE
 }
