@@ -5,7 +5,8 @@ using System.Collections;
 enum ETypeKind {
 	PRIMITIVE,
 	STRUCT,
-	ARRAY
+	ARRAY,
+	FUNCTION_POINTER
 }
 
 enum ECType {
@@ -22,10 +23,10 @@ enum ECType {
 	FLOAT32 = "float".Fnv1a(),
 	FLOAT64 = "double".Fnv1a(),
 	BOOL8 = "bool".Fnv1a(),
+	CHAR = "char".Fnv1a(),
 
 	// Type equivalents (only here for string comparisons)
 	INT = "int".Fnv1a(),
-	CHAR = "char".Fnv1a(),
 	UNSIGNED_LONG_LONG = "unsigned long long".Fnv1a(),
 	
 	STRUCT,
@@ -46,6 +47,8 @@ struct TypeInfo {
 	public ECType type;
 	public uint8 pointerLevel;
 	public uint64 size;
+	public bool isConstant;
+	public uint64 align;
 }
 
 struct Argument {
@@ -66,15 +69,73 @@ struct FunctionProps {
 
 class CParser {
 	const int64 MAX_FIELD_NAME = 128;
+
 	private Dictionary<String, StructDescription> m_registeredStructsByName = new Dictionary<String, StructDescription>() ~ delete _;
-	
+
+	// A dictionary of all functions and function pointers
+	private Dictionary<String, FunctionProps> m_functions = new Dictionary<String, FunctionProps>() ~ delete _;
+
 	private bool IsValidIdentifierChar(char8 c) {
 		return c.IsLetterOrDigit || c == '_';
 	}
 
+	private bool FindNumberBetween(in StringView baseString, char8 opening, char8 closing, out uint64 number, int* startIndex) {
+		let buffer = scope String(4);
+		number = 0;
+		bool inEnclosing = false;
+		for (int i = 0; i < baseString.Length; i++) {
+			if (baseString[i] == opening && !inEnclosing) {
+				*startIndex = i;
+				inEnclosing = true;
+				continue;
+			}
+			if (!inEnclosing) continue;
+			if (baseString[i] == closing) {
+				inEnclosing = false;
+				break;
+			}
+			buffer.Append(baseString[i]);
+		}
+
+		let parseRes = uint64.Parse(buffer);
+		if (parseRes case .Err) {
+			return false;
+		}
+		number = parseRes.Value;
+		return true;
+	}
+
+	private EError TryParseSignature(StringView str, out FunctionProps functionProps) {
+		
+	}
+
 	private EError TryParseType(StringView typeString, ref TypeInfo typeInfo, bool countPtrLevel = false) {
+		var typeString; // Mutable copy
+		const String CONST_IDENTIFIER = "const";
+		const String ALIGNAS_IDENTIFIER = "alignas";
+
+		int alignIdx = typeString.IndexOf(ALIGNAS_IDENTIFIER);
+		int _;
+		bool hasValidAlignment = this.FindNumberBetween(typeString, '(', ')', out typeInfo.align, &_);
+		
+		if (alignIdx != -1 && !hasValidAlignment) {
+			Console.WriteLine($"Could not parse specified alignment for type: {typeString}");
+			return EError.FORMAT_ERROR;
+		}
+
+		if (hasValidAlignment) {
+			int additionalOffset = 2 + MathUtils.DigitCount(typeInfo.align);
+			typeString = typeString.Substring(alignIdx + ALIGNAS_IDENTIFIER.Length + additionalOffset);
+		}
+		
+		int constIdx = typeString.IndexOf(CONST_IDENTIFIER);
+		typeInfo.isConstant = constIdx != -1;
+		if (typeInfo.isConstant) {
+			typeString = typeString.Substring(constIdx + CONST_IDENTIFIER.Length);
+		}
+		
 		StringView strippedType = typeString.Strip();
-		// We could have alignas or array types
+
 		ECType hash = (ECType)strippedType.Fnv1a();
 		switch (hash) {
 		case ECType.VOID:
@@ -83,52 +144,68 @@ class CParser {
 		case ECType.INT8:
 			typeInfo.type = ECType.INT8;
 			typeInfo.size = sizeof(int8);
+			typeInfo.align = alignof(int8);
 			break;
 		case ECType.INT16:
 			typeInfo.type = ECType.INT16;
 			typeInfo.size = sizeof(int16);
+			typeInfo.align = alignof(int16);
 			break;
 		case ECType.INT32:
 			typeInfo.type = ECType.INT32;
 			typeInfo.size = sizeof(int32);
+			typeInfo.align = alignof(int32);
 			break;
 		case ECType.INT64:
 			typeInfo.type = ECType.INT64;
 			typeInfo.size = sizeof(int64);
+			typeInfo.align = alignof(int64);
+			break;
+		case ECType.CHAR:
+			typeInfo.type = ECType.CHAR;
+			typeInfo.size = sizeof(char8);
+			typeInfo.align = alignof(char8);
 			break;
 		case ECType.UINT8:
-		case ECType.CHAR:
 			typeInfo.type = ECType.UINT8;
 			typeInfo.size = sizeof(uint8);
+			typeInfo.align = alignof(uint8);
 			break;
 		case ECType.UINT16:
 			typeInfo.type = ECType.UINT16;
 			typeInfo.size = sizeof(uint16);
+			typeInfo.align = alignof(uint16);
 			break;
 		case ECType.UINT32:
 			typeInfo.type = ECType.UINT32;
 			typeInfo.size = sizeof(uint32);
+			typeInfo.align = alignof(uint32);
 			break;
 		case ECType.UNSIGNED_LONG_LONG:
 		case ECType.UINT64:
 			typeInfo.type = ECType.UINT64;
 			typeInfo.size = sizeof(uint64);
+			typeInfo.align = alignof(uint64);
 			break;
 		case ECType.FLOAT32:
 			typeInfo.type = ECType.FLOAT32;
 			typeInfo.size = sizeof(float);
+			typeInfo.align = alignof(float);
 			break;
 		case ECType.FLOAT64:
 			typeInfo.type = ECType.FLOAT64;
 			typeInfo.size = sizeof(double);
+			typeInfo.align = alignof(double);
 			break;
 		case ECType.BOOL8:
 			typeInfo.type = ECType.BOOL8;
 			typeInfo.size = sizeof(bool);
+			typeInfo.align = alignof(bool);
 			break;
 		case ECType.INT:
 			typeInfo.type = ECType.INT;
 			typeInfo.size = sizeof(int);
+			typeInfo.align = alignof(int);
 			break;
 		
 		default:
@@ -145,36 +222,19 @@ class CParser {
 			}
 			
 			typeInfo.size = structRef.size;
+			typeInfo.align = structRef.align;
 			break;
 		}
+		
 		return EError.OK;
 	}
-	
-	private EError TryParseStructField(ref StructDescription structDesc, StringView line) {
-		// A struct field is whatever the first non whitespace word is, along with its pointer level
-		// Run the array backwards to find all other info in one go
-		
-		// IMPORTANT: MISSING EDGE CASES (delete as we implement)
-		// - alignas(n)
-		// - Array types [] and [n]
-		// - stdint
-		// - _Bool
-		// - Nested structs
-		// - Types with multi-word names (i.e unsigned long long)
 
-		if (line.Contains('}')) return EError.OK;
-
-		bool nameIsSet = false;
-		bool hasSemicolon = false;
-		String wordBuffer = scope String(MAX_FIELD_NAME);
-		// We assume the pointer level is simply the amount of times we see the '*' character in the string
-		uint8 pointerLevel = 0;
+	private EError TryGetFieldName(in StringView line, ref String wordBuffer, out int startNameIdx) {
+		startNameIdx = -1;
 		char8 prevChar = '\0';
+
 		for (int i = line.Length - 1; i >= 0; i--) {
-			if (line[i] == ';') {
-				hasSemicolon = true;
-			}
-			bool shouldRecordWord = IsValidIdentifierChar(prevChar) || nameIsSet;
+			bool shouldRecordWord =  IsValidIdentifierChar(prevChar);
 			if (shouldRecordWord) {
 				// If we just started, let's append the previous char
 				if (wordBuffer.IsEmpty) {
@@ -185,42 +245,64 @@ class CParser {
 				}
 			}
 			else if (!wordBuffer.IsEmpty) {
-				// Identify our position, since we go backwards, we have name first, then type
-				if (!nameIsSet) {
-					StringView sv = wordBuffer;
-					ref Argument field = ref structDesc.fields[structDesc.fieldCount];
-					sv.CopyTo(field.name);
-					structDesc.fieldCount++;
-					nameIsSet = true;
-				}
-				else {
-					// We have a type
-					ref Argument field = ref structDesc.fields[structDesc.fieldCount];
-					EError err = TryParseType(wordBuffer, ref field.typeInfo);
-					if (err != EError.OK) return err;
-				}
-				wordBuffer.Clear();
+				startNameIdx = i;
+				return EError.OK;
 			}
-			if (line[i] == '*') {
-				pointerLevel++;
-			}
+			// if (line[i] == '*') {
+			// 	pointerLevel++;
+			// }
 			prevChar = line[i];
+		}
+		return EError.FORMAT_ERROR;
+	}
+	
+	private EError TryParseStructField(ref StructDescription structDesc, StringView line) {
+		var line; // Make mutable copy
+		// A struct field is whatever the first non whitespace word is, along with its pointer level
+		// Run the array backwards to find all other info in one go
+		
+		// IMPORTANT: MISSING EDGE CASES (delete as we implement)
+		// - Array types [] and [n]
+		// - Function pointers
+		// - _Bool
+
+		
+		// Identify the array before the rest of it all lol
+		uint64 arraySize;
+		int firstBracketIdx = line.Length; // Start at full length so substring is a no-op if nothing is found
+		bool isArray = this.FindNumberBetween(line, '[', ']', out arraySize, &firstBracketIdx);
+		line = line.Substring(0, firstBracketIdx);
+		
+		String wordBuffer = scope String(MAX_FIELD_NAME);
+		// We assume the pointer level is simply the amount of times we see the '*' character in the string
+		int startNameIdx;
+		EError err = this.TryGetFieldName(line, ref wordBuffer, out startNameIdx);
+
+		if (err != EError.OK) {
+			Console.WriteLine($"Could not parse name for struct field: {line}");
+			return err;
 		}
 
 		ref Argument field = ref structDesc.fields[structDesc.fieldCount];
-		
-		if (pointerLevel > 0) {
-			field.typeInfo.pointerLevel = pointerLevel;
-			field.typeInfo.size = sizeof(void*);
+
+		StringView nameView = wordBuffer;
+		nameView.CopyTo(field.name);
+		wordBuffer.Clear();
+
+		StringView typeString = line.Substring(0, startNameIdx + 1);
+		err = this.TryParseType(typeString, ref field.typeInfo);
+		if (err != EError.OK) {
+			return err;
 		}
-		
-		if (!hasSemicolon) {
-			return EError.FORMAT_ERROR;
+
+		if (isArray) {
+			field.typeInfo.kind = ETypeKind.ARRAY;
+			field.typeInfo.size = field.typeInfo.size * arraySize;
 		}
 
 		if (!wordBuffer.IsEmpty) {
 			// We have a pending type
-			EError err = TryParseType(wordBuffer, ref field.typeInfo);
+			err = TryParseType(wordBuffer, ref field.typeInfo);
 			if (err != EError.OK) return err;
 		}
 		return EError.OK;
@@ -233,9 +315,12 @@ class CParser {
 		uint32 index = 0;
 		uint32 pendingBraces = 0;
 		for (StringView part in structRegion.Split("\n")) {
+			// Identify the end of the struct
+			if (part.Contains('}')) break;
 			if (index != 0) {
 				EError err = TryParseStructField(ref structDesc, part);
 				if (err != EError.OK) return err;
+				structDesc.fieldCount++;
 				index++;
 				continue;
 			}

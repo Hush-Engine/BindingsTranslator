@@ -8,19 +8,24 @@ namespace System {
 
 		public StringView Strip() {
 			int startIdx = 0;
-			int lastWhitespaceIdx = mLength;
+			char8 prevChar = '\0';
+			int endTrimStart = mLength;
 			for (int i = 0; i < mLength; i++) {
 				char8 c = this[i];
 				if (!c.IsWhiteSpace) {
+					prevChar = c;
 					continue;
 				}
-				lastWhitespaceIdx = i;
-				if (startIdx == 0) {
-					startIdx = i;
+				if (prevChar != '\0' && !prevChar.IsWhiteSpace) {
+					endTrimStart = i;
 				}
+				if (startIdx == 0) {
+					startIdx = i + 1;
+				}
+				prevChar = c;
 				
 			}
-			return this.Substring(startIdx, lastWhitespaceIdx);
+			return this.Substring(startIdx, endTrimStart - startIdx);
 		}
 		
 		public uint32 Fnv1a()
@@ -42,19 +47,24 @@ namespace System {
 		
 		public StringView Strip() {
 			int startIdx = 0;
-			int lastWhitespaceIdx = mLength;
+			char8 prevChar = '\0';
+			int endTrimStart = mLength;
 			for (int i = 0; i < mLength; i++) {
 				char8 c = this[i];
 				if (!c.IsWhiteSpace) {
+					prevChar = c;
 					continue;
 				}
-				lastWhitespaceIdx = i;
-				if (startIdx == 0) {
-					startIdx = i;
+				if (prevChar != '\0' && !prevChar.IsWhiteSpace) {
+					endTrimStart = i;
 				}
+				if (startIdx == 0) {
+					startIdx = i + 1;
+				}
+				prevChar = c;
 				
 			}
-			return this.Substring(startIdx, lastWhitespaceIdx);
+			return this.Substring(startIdx, endTrimStart - startIdx);
 		}
 		
 		public uint32 Fnv1a()
