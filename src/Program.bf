@@ -15,6 +15,7 @@ class Program {
 			uint64_t m_unsigned64Test;
 			bool m_boolTest;
 			int32_t m_signed32ArrTest[100];
+			void (*ctor)(void *, int, const void *);
 		} Hush__RawQuery__QueryIterator;
 		""";
 

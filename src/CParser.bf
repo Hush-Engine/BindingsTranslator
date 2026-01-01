@@ -28,6 +28,7 @@ enum ECType {
 	// Type equivalents (only here for string comparisons)
 	INT = "int".Fnv1a(),
 	UNSIGNED_LONG_LONG = "unsigned long long".Fnv1a(),
+	_BOOL = "_Bool".Fnv1a(),
 	
 	STRUCT,
 }
@@ -75,6 +76,8 @@ class CParser {
 	// A dictionary of all functions and function pointers
 	private Dictionary<String, FunctionProps> m_functions = new Dictionary<String, FunctionProps>() ~ delete _;
 
+	private Dictionary<String, Variant> m_defines = new Dictionary<String, Variant>() ~ delete _;
+
 	private bool IsValidIdentifierChar(char8 c) {
 		return c.IsLetterOrDigit || c == '_';
 	}
@@ -105,8 +108,46 @@ class CParser {
 		return true;
 	}
 
-	private EError TryParseSignature(StringView str, out FunctionProps functionProps) {
-		
+	private StringView FindContentsInBetween(in StringView baseString, char8 opening, char8 closing, out int startIndex) {
+		startIndex = 0;
+		bool inEnclosing = false;
+		int lastIndex = 0;
+		for (int i = 0; i < baseString.Length; i++) {
+			if (baseString[i] == opening && !inEnclosing) {
+				startIndex = i;
+				inEnclosing = true;
+				continue;
+			}
+			if (!inEnclosing) continue;
+			if (baseString[i] == closing) {
+				inEnclosing = false;
+				break;
+			}
+			lastIndex++;
+		}
+
+		return baseString.Substring(startIndex + 1, lastIndex);
+	}
+
+	private bool TryParseFunctionPtr(StringView str, out FunctionProps functionProps) {
+		// First we identify if this even is a function ptr
+		functionProps = FunctionProps();
+		// A fn pointer is defined as ReturnType (*Name)(ArgType OptionalName, ArgType OptionalName ...);
+
+		// First let's try to get the name of the function ptr
+		int startIndex;
+		StringView nameWithPtrIdentifier = this.FindContentsInBetween(str, '(', ')', out startIndex);
+		if (nameWithPtrIdentifier.IsEmpty || nameWithPtrIdentifier[0] != '*') {
+			return false; // Not a valid fn ptr
+		}
+		nameWithPtrIdentifier.Substring(1).CopyTo(functionProps.name);
+		// Then we get the list of arguments
+		StringView argumentSignature = str.Substring(startIndex + nameWithPtrIdentifier.Length + 2);
+		// Then we can maybe split by comma and parse the type one by one
+		for (StringView rawArg in argumentSignature.Split(',')) {
+		}
+
+		return false;
 	}
 
 	private EError TryParseType(StringView typeString, ref TypeInfo typeInfo, bool countPtrLevel = false) {
@@ -198,6 +239,7 @@ class CParser {
 			typeInfo.align = alignof(double);
 			break;
 		case ECType.BOOL8:
+		case ECType._BOOL:
 			typeInfo.type = ECType.BOOL8;
 			typeInfo.size = sizeof(bool);
 			typeInfo.align = alignof(bool);
@@ -272,6 +314,12 @@ class CParser {
 		int firstBracketIdx = line.Length; // Start at full length so substring is a no-op if nothing is found
 		bool isArray = this.FindNumberBetween(line, '[', ']', out arraySize, &firstBracketIdx);
 		line = line.Substring(0, firstBracketIdx);
+
+		FunctionProps functionPtrProps;
+		if (this.TryParseFunctionPtr(line, out functionPtrProps)) {
+			// If this suceeds, we fill the struct desc with the info of the fn ptr, add it to the map, and we early return
+			return EError.OK;
+		}
 		
 		String wordBuffer = scope String(MAX_FIELD_NAME);
 		// We assume the pointer level is simply the amount of times we see the '*' character in the string
