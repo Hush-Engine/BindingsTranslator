@@ -6,27 +6,20 @@ namespace System {
 			return -1;
 		}
 
-		public StringView Strip() {
-			int startIdx = 0;
-			char8 prevChar = '\0';
-			int endTrimStart = mLength;
-			for (int i = 0; i < mLength; i++) {
-				char8 c = this[i];
-				if (!c.IsWhiteSpace) {
-					prevChar = c;
-					continue;
-				}
-				if (prevChar != '\0' && !prevChar.IsWhiteSpace) {
-					endTrimStart = i;
-				}
-				if (startIdx == 0) {
-					startIdx = i + 1;
-				}
-				prevChar = c;
-				
-			}
-			return this.Substring(startIdx, endTrimStart - startIdx);
+		public StringView Strip()
+		{
+			int start = 0;
+			int end = mLength;
+
+			while (start < end && this[start].IsWhiteSpace)
+				start++;
+
+			while (end > start && this[end - 1].IsWhiteSpace)
+				end--;
+
+			return this.Substring(start, end - start);
 		}
+
 		
 		public uint32 Fnv1a()
 		{
@@ -41,31 +34,36 @@ namespace System {
 
 		    return hash;
 		}
+
+		public void CountAndGetFirstIdx(char8 token, out int count, out int firstIndex) {
+			count = 0;
+			firstIndex = -1;
+			for (int i = 0; i < this.mLength; i++) {
+				if (this[i] != token) continue;
+				count++;
+				if (firstIndex == -1) {
+					firstIndex = i;
+				}
+			}
+		}
 		
 	}
 	extension String {
-		
-		public StringView Strip() {
-			int startIdx = 0;
-			char8 prevChar = '\0';
-			int endTrimStart = mLength;
-			for (int i = 0; i < mLength; i++) {
-				char8 c = this[i];
-				if (!c.IsWhiteSpace) {
-					prevChar = c;
-					continue;
-				}
-				if (prevChar != '\0' && !prevChar.IsWhiteSpace) {
-					endTrimStart = i;
-				}
-				if (startIdx == 0) {
-					startIdx = i + 1;
-				}
-				prevChar = c;
-				
-			}
-			return this.Substring(startIdx, endTrimStart - startIdx);
+
+		public StringView Strip()
+		{
+			int start = 0;
+			int end = mLength;
+
+			while (start < end && this[start].IsWhiteSpace)
+				start++;
+
+			while (end > start && this[end - 1].IsWhiteSpace)
+				end--;
+
+			return this.Substring(start, end - start);
 		}
+
 		
 		public uint32 Fnv1a()
 		{

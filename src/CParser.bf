@@ -31,6 +31,7 @@ enum ECType {
 	_BOOL = "_Bool".Fnv1a(),
 	
 	STRUCT,
+	FUNCTION_POINTER
 }
 
 struct StructDescription {
@@ -74,7 +75,7 @@ class CParser {
 	private Dictionary<String, StructDescription> m_registeredStructsByName = new Dictionary<String, StructDescription>() ~ delete _;
 
 	// A dictionary of all functions and function pointers
-	private Dictionary<String, FunctionProps> m_functions = new Dictionary<String, FunctionProps>() ~ delete _;
+	private Dictionary<StringView, FunctionProps> m_functions = new Dictionary<StringView, FunctionProps>() ~ delete _;
 
 	private Dictionary<String, Variant> m_defines = new Dictionary<String, Variant>() ~ delete _;
 
@@ -129,6 +130,34 @@ class CParser {
 		return baseString.Substring(startIndex + 1, lastIndex);
 	}
 
+	
+	private bool IsTypeOrStruct(in StringView str) {
+		ECType hash = (ECType)str.Fnv1a();
+		switch (hash) {
+		case ECType.VOID:
+		case ECType.INT8:
+		case ECType.INT16:
+		case ECType.INT32:
+		case ECType.INT64:
+		case ECType.CHAR:
+		case ECType.UINT8:
+		case ECType.UINT16:
+		case ECType.UINT32:
+		case ECType.UNSIGNED_LONG_LONG:
+		case ECType.UINT64:
+		case ECType.FLOAT32:
+		case ECType.FLOAT64:
+		case ECType.BOOL8:
+		case ECType._BOOL:
+		case ECType.INT:
+			return true;
+		default:
+			let key = scope String(str);
+			return this.m_registeredStructsByName.ContainsKey(key);
+		}
+		return false;
+	}
+
 	private bool TryParseFunctionPtr(StringView str, out FunctionProps functionProps) {
 		// First we identify if this even is a function ptr
 		functionProps = FunctionProps();
@@ -143,11 +172,41 @@ class CParser {
 		nameWithPtrIdentifier.Substring(1).CopyTo(functionProps.name);
 		// Then we get the list of arguments
 		StringView argumentSignature = str.Substring(startIndex + nameWithPtrIdentifier.Length + 2);
+		int _;
+		argumentSignature = this.FindContentsInBetween(argumentSignature, '(', ')', out _);
+
 		// Then we can maybe split by comma and parse the type one by one
+		int currentArgIdx = 0;
 		for (StringView rawArg in argumentSignature.Split(',')) {
+			rawArg = rawArg.Strip();
+			// There could or could not be a name for the argument here
+			// A name would be the trailing non whitespace
+			TypeInfo typeInfo = TypeInfo();
+			int nameLength = rawArg.Length;
+			int nameStartIdx = -1;
+			for (int i = rawArg.Length - 1; i >= 0; i--) {
+				if (!rawArg[i].IsLetterOrDigit) break;
+				nameStartIdx = i;
+			}
+
+			if (nameStartIdx != -1) {
+				nameLength -= nameStartIdx;
+				StringView name = rawArg.Substring(nameStartIdx, nameLength);
+				if (!this.IsTypeOrStruct(name)) {
+					name.CopyTo(functionProps.args[currentArgIdx].name);				
+					rawArg = rawArg.Substring(0, nameStartIdx);
+				}
+			}
+			
+			EError err = this.TryParseType(rawArg, ref typeInfo, true);
+			if (err != EError.OK) {
+				Console.WriteLine($"Error parsing argument: {rawArg} of function pointer {nameWithPtrIdentifier}: {err}");
+				return false;
+			}
+			functionProps.args[currentArgIdx].typeInfo = typeInfo;
 		}
 
-		return false;
+		return true;
 	}
 
 	private EError TryParseType(StringView typeString, ref TypeInfo typeInfo, bool countPtrLevel = false) {
@@ -173,6 +232,18 @@ class CParser {
 		typeInfo.isConstant = constIdx != -1;
 		if (typeInfo.isConstant) {
 			typeString = typeString.Substring(constIdx + CONST_IDENTIFIER.Length);
+		}
+
+		// Count ptrs and susbtring replace
+		if (countPtrLevel) {
+			int pointerCount;
+			int ptrFirstIdx;
+
+			typeString.CountAndGetFirstIdx('*', out pointerCount, out ptrFirstIdx);
+			if (ptrFirstIdx != -1) {
+				typeString = typeString.Substring(0, ptrFirstIdx);
+				typeInfo.pointerLevel = (uint8)pointerCount;
+			}
 		}
 		
 		StringView strippedType = typeString.Strip();
@@ -267,6 +338,11 @@ class CParser {
 			typeInfo.align = structRef.align;
 			break;
 		}
+
+		if (countPtrLevel && typeInfo.pointerLevel > 0) {
+			typeInfo.size = sizeof(void*);
+			typeInfo.align = alignof(void*);
+		}
 		
 		return EError.OK;
 	}
@@ -318,6 +394,17 @@ class CParser {
 		FunctionProps functionPtrProps;
 		if (this.TryParseFunctionPtr(line, out functionPtrProps)) {
 			// If this suceeds, we fill the struct desc with the info of the fn ptr, add it to the map, and we early return
+			ref Argument field = ref structDesc.fields[structDesc.fieldCount];
+
+			StringView nameView = StringView(&functionPtrProps.name[0]);
+			nameView.CopyTo(field.name);
+			field.typeInfo.kind = ETypeKind.FUNCTION_POINTER;
+			field.typeInfo.type = ECType.FUNCTION_POINTER;
+			field.typeInfo.size = sizeof(function void());
+			field.typeInfo.align = alignof(function void());
+
+			// This does a reference to the local fixed array, if the value type is destroyed, so should be the key
+			this.m_functions.TryAdd(nameView, functionPtrProps);
 			return EError.OK;
 		}
 		
