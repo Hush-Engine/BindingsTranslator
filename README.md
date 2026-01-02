@@ -1,0 +1,32 @@
+# HushBindingGen
+
+CLI utility to generate boilerplate bindings for the Hush engine from C header files.
+
+## Description
+
+HushBindingGen breathes life into your C declarations by transforming them into idiomatic bindings across multiple languages. It parses a focused subset of C—structs and functions—and crafts clean, ready-to-use bindings for:
+- C#
+- Rust  
+- Beef
+
+**Note:** This tool intentionally skips A LOT of the C specification. It's not trying to be compliant with the entire C language standard, just the specific pieces that power the Hush engine's C++20 codebase.
+
+## Usage
+
+```bash
+HushBindingGen [input-file] --lang[rust, beef, csharp, all] # Defaults to all
+```
+
+Feed it the C header and provided the language interface is implemented, you'll get a folder with the bindings as output
+
+## Supported Features
+
+- Primitive types (int8_t, int16_t, int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t, float, double, bool, char)
+- Struct declarations with proper alignment
+- Function declarations and signatures
+- Function pointers
+- Arrays and nested structures
+
+## Implementation
+
+Crafted in Beef programming language with a custom C parser that extracts the essence of your declarations and weaves them into language-specific bindings.
