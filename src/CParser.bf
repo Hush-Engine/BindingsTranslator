@@ -75,7 +75,7 @@ class CParser {
 	private Dictionary<String, StructDescription> m_registeredStructsByName = new Dictionary<String, StructDescription>() ~ delete _;
 
 	// A dictionary of all functions and function pointers
-	private Dictionary<StringView, FunctionProps> m_functions = new Dictionary<StringView, FunctionProps>() ~ delete _;
+	public Dictionary<StringView, FunctionProps> m_functions = new Dictionary<StringView, FunctionProps>() ~ delete _;
 
 	private Dictionary<String, Variant> m_defines = new Dictionary<String, Variant>() ~ delete _;
 
@@ -170,6 +170,14 @@ class CParser {
 			return false; // Not a valid fn ptr
 		}
 		nameWithPtrIdentifier.Substring(1).CopyTo(functionProps.name);
+
+		// Get the return type (start index of name - 1 due to opening parentheses)
+		StringView retTypeStr = str.Substring(0, startIndex - 1).Strip();
+		EError err = this.TryParseType(retTypeStr, ref functionProps.returnType, true);
+		if (err != EError.OK) {
+			return false;
+		}
+
 		// Then we get the list of arguments
 		StringView argumentSignature = str.Substring(startIndex + nameWithPtrIdentifier.Length + 2);
 		int _;
@@ -198,12 +206,13 @@ class CParser {
 				}
 			}
 			
-			EError err = this.TryParseType(rawArg, ref typeInfo, true);
+			err = this.TryParseType(rawArg, ref typeInfo, true);
 			if (err != EError.OK) {
 				Console.WriteLine($"Error parsing argument: {rawArg} of function pointer {nameWithPtrIdentifier}: {err}");
 				return false;
 			}
 			functionProps.args[currentArgIdx].typeInfo = typeInfo;
+			currentArgIdx++;
 		}
 
 		return true;
@@ -263,6 +272,12 @@ class CParser {
 			typeInfo.size = sizeof(int16);
 			typeInfo.align = alignof(int16);
 			break;
+		case ECType.INT: // Following MSVC and GCC standards on Windows, unspecified INT will most likely be 32-bits
+			// I could not get it to fallthrough here once, you're welcome to try again later tho
+			typeInfo.type = ECType.INT32;
+			typeInfo.size = sizeof(int32);
+			typeInfo.align = alignof(int32);
+			break;
 		case ECType.INT32:
 			typeInfo.type = ECType.INT32;
 			typeInfo.size = sizeof(int32);
@@ -314,11 +329,6 @@ class CParser {
 			typeInfo.type = ECType.BOOL8;
 			typeInfo.size = sizeof(bool);
 			typeInfo.align = alignof(bool);
-			break;
-		case ECType.INT:
-			typeInfo.type = ECType.INT;
-			typeInfo.size = sizeof(int);
-			typeInfo.align = alignof(int);
 			break;
 		
 		default:
