@@ -51,12 +51,24 @@ struct TypeInfo {
 	public uint64 size;
 	public bool isConstant;
 	public uint64 align;
+	public StringView structName;
 }
 
 struct Argument {
 	const int64 MAX_FIELD_NAME = 128;
 	public char8[MAX_FIELD_NAME] name;
 	public TypeInfo typeInfo;
+}
+
+public enum EScopeType {
+    Struct,
+    Function,
+    Unknown
+}
+
+public struct ParseRegion {
+    public EScopeType type;
+    public StringView content;
 }
 
 struct FunctionProps {
@@ -72,7 +84,7 @@ struct FunctionProps {
 class CParser {
 	const int64 MAX_FIELD_NAME = 128;
 
-	private Dictionary<String, StructDescription> m_registeredStructsByName = new Dictionary<String, StructDescription>() ~ delete _;
+	private Dictionary<StringView, StructDescription> m_registeredStructsByName = new Dictionary<StringView, StructDescription>() ~ delete _;
 
 	// A dictionary of all functions and function pointers
 	public Dictionary<StringView, FunctionProps> m_functions = new Dictionary<StringView, FunctionProps>() ~ delete _;
@@ -152,13 +164,96 @@ class CParser {
 		case ECType.INT:
 			return true;
 		default:
-			let key = scope String(str);
-			return this.m_registeredStructsByName.ContainsKey(key);
+			return this.m_registeredStructsByName.ContainsKey(str);
 		}
 		return false;
 	}
 
-	private bool TryParseFunctionPtr(StringView str, out FunctionProps functionProps) {
+	// Collects parse regions from a header file
+	public EError SeparateScopes(StringView headerContent, ref List<ParseRegion> outRegions) {
+	    StringView trimmed = headerContent.Strip();
+    
+	    uint32 currentPos = 0;
+	    while (currentPos < trimmed.Length) {
+	        StringView remaining = trimmed.Substring(currentPos);
+        
+	        // Skip whitespace
+	        int firstNonWhitespace = 0;
+	        for (char8 c in remaining) {
+	            if (!c.IsWhiteSpace) break;
+	            firstNonWhitespace++;
+	        }
+        
+	        if (firstNonWhitespace >= remaining.Length) break;
+        
+	        remaining = remaining.Substring(firstNonWhitespace);
+	        currentPos += (uint32)firstNonWhitespace;
+        
+	        // Check for struct definition
+	        if (remaining.StartsWith("typedef struct")) {
+	            // Find the closing brace and semicolon
+	            int braceDepth = 0;
+	            int endIdx = 0;
+	            bool foundOpenBrace = false;
+            
+	            for (int i = 0; i < remaining.Length; i++) {
+	                char8 c = remaining[i];
+	                if (c == '{') {
+	                    braceDepth++;
+	                    foundOpenBrace = true;
+	                } else if (c == '}') {
+	                    braceDepth--;
+	                    if (foundOpenBrace && braceDepth == 0) {
+	                        // Find the semicolon after the closing brace
+	                        for (int j = i + 1; j < remaining.Length; j++) {
+	                            if (remaining[j] == ';') {
+	                                endIdx = j + 1;
+	                                break;
+	                            }
+	                        }
+	                        break;
+	                    }
+	                }
+	            }
+            
+	            if (endIdx == 0) {
+	                Console.WriteLine("Malformed struct: no closing brace/semicolon found");
+	                return EError.FORMAT_ERROR;
+	            }
+            
+	            ParseRegion region = .() { type = .Struct, content = remaining.Substring(0, endIdx) };
+	            outRegions.Add(region);
+	            currentPos += (uint32)endIdx;
+	        }
+	        // Check for function declaration (extern or direct)
+	        else if (remaining.StartsWith("extern") || IsLikelyFunctionSignature(remaining)) {
+	            // Find the semicolon
+	            int semiIdx = remaining.IndexOf(';');
+	            if (semiIdx == -1) {
+	                Console.WriteLine("Malformed function declaration: no semicolon found");
+	                return EError.FORMAT_ERROR;
+	            }
+            
+	            ParseRegion region = .() { type = .Function, content = remaining.Substring(0, semiIdx + 1) };
+	            outRegions.Add(region);
+	            currentPos += (uint32)semiIdx + 1;
+	        }
+	        else {
+	            // Skip unknown content until next line
+	            int nextLine = remaining.IndexOf('\n');
+	            if (nextLine == -1) break;
+	            currentPos += (uint32)nextLine + 1;
+	        }
+	    }
+    
+	    return EError.OK;
+	}
+
+	private bool IsLikelyFunctionSignature(in StringView content) {
+		return false;
+	}
+
+	private bool TryParseFunctionPtr(in StringView str, out FunctionProps functionProps) {
 		// First we identify if this even is a function ptr
 		functionProps = FunctionProps();
 		// A fn pointer is defined as ReturnType (*Name)(ArgType OptionalName, ArgType OptionalName ...);
@@ -184,8 +279,14 @@ class CParser {
 		argumentSignature = this.FindContentsInBetween(argumentSignature, '(', ')', out _);
 
 		// Then we can maybe split by comma and parse the type one by one
+		err = TryParseRawArgumentList(ref functionProps, argumentSignature);
+
+		return err != EError.OK;
+	}
+
+	private EError TryParseRawArgumentList(ref FunctionProps functionProps, in StringView rawArgs) {
 		int currentArgIdx = 0;
-		for (StringView rawArg in argumentSignature.Split(',')) {
+		for (StringView rawArg in rawArgs.Split(',')) {
 			rawArg = rawArg.Strip();
 			// There could or could not be a name for the argument here
 			// A name would be the trailing non whitespace
@@ -206,16 +307,16 @@ class CParser {
 				}
 			}
 			
-			err = this.TryParseType(rawArg, ref typeInfo, true);
+			EError err = this.TryParseType(rawArg, ref typeInfo, true);
 			if (err != EError.OK) {
-				Console.WriteLine($"Error parsing argument: {rawArg} of function pointer {nameWithPtrIdentifier}: {err}");
-				return false;
+				// Console.WriteLine($"Error parsing argument: {rawArg} of function pointer {nameWithPtrIdentifier}: {err}");
+				Console.WriteLine($"Error parsing argument: {rawArg} of function: {err}");
+				return err;
 			}
 			functionProps.args[currentArgIdx].typeInfo = typeInfo;
 			currentArgIdx++;
 		}
-
-		return true;
+		return EError.OK;
 	}
 
 	private EError TryParseType(StringView typeString, ref TypeInfo typeInfo, bool countPtrLevel = false) {
@@ -335,17 +436,18 @@ class CParser {
 			typeInfo.type = ECType.STRUCT;
 			typeInfo.kind = ETypeKind.STRUCT;
 			let key = scope String(strippedType);
-			String* match = null;
+			StringView* match = null;
 			StructDescription* structRef = null;
 			// TODO: DO NOT CHECK struct register if the pointer level is >= 1 (forward declaration)
-			bool contains = this.m_registeredStructsByName.TryGetRef(key, out match, out structRef);
+			bool contains = this.m_registeredStructsByName.TryGetRef(strippedType, out match, out structRef);
 			if (!contains) {
-				Console.WriteLine($"Could not find struct by the name of {key}, make sure it is declared before its usage!");
+				Console.WriteLine($"Could not find struct by the name of {strippedType}, make sure it is declared before its usage!");
 				return EError.UNRECOGNIZED_TYPE;
 			}
 			
 			typeInfo.size = structRef.size;
 			typeInfo.align = structRef.align;
+			typeInfo.structName = *match;
 			break;
 		}
 
@@ -454,7 +556,7 @@ class CParser {
 	}
 	
 	/// @brief Parses a struct description, the string needs to be identified (from typedef struct to final enclosing curly bracket)
-	public EError TryParseStruct(out StructDescription structDesc, StringView structRegion) {
+	public EError TryParseStruct(out StructDescription structDesc, in StringView structRegion) {
 		structDesc = StructDescription{};
 		// Any given struct will be parsed by identifying the substr "typedef struct"
 		uint32 index = 0;
@@ -489,6 +591,20 @@ class CParser {
 		let key = scope String(&structDesc.name[0]);
 		this.m_registeredStructsByName[key] = structDesc;
 
+		return EError.OK;
+	}
+
+	public EError TryParseFunction(out FunctionProps functionProps, in StringView functionRegion) {
+		// Parse the signature first, name and return type later (harder lol)
+		
+		int startIndex;
+		StringView argListRaw = this.FindContentsInBetween(functionRegion, '(', ')', out startIndex);
+		functionProps = FunctionProps();
+		EError err = TryParseRawArgumentList(ref functionProps, argListRaw);
+
+		if (err != EError.OK) {
+			return err;
+		}
 		return EError.OK;
 	}
 }

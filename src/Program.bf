@@ -1,33 +1,16 @@
 namespace HushBindingGen;
 using System;
+using System.Collections;
 
 class Program {
-	static void Main(String[] args) {
-		let structDecl =
-		"""
-		typedef struct Hush__RawQuery__QueryIterator {
-			alignas(1) char m_member0[384];
-			alignas(8) char m_member1[8];
-			alignas(1) char m_member2[1];
-			double m_doubleTest;
-			float m_singleTest;
-			int64_t m_signed64Test;
-			uint64_t m_unsigned64Test;
-			bool m_boolTest;
-			int32_t m_signed32ArrTest[100];
-			void (*ctor)(void *comp, int, const void *);
-		} Hush__RawQuery__QueryIterator;
-		""";
 
-		Console.WriteLine($"String to parse: \n{structDecl}\n\n");
-
-		let parser = scope CParser();
+	private static void ProcessStruct(CParser parser, in StringView structDecl) {
 		StructDescription desc;
 		EError err = parser.TryParseStruct(out desc, structDecl);
 		if (err != EError.OK) {
 			Console.WriteLine($"Error {err}!");
 		}
-		
+
 		Console.WriteLine($"Struct: {desc.name}");
 		for (uint32 i = 0; i < desc.fieldCount; i++) {
 			let field = &desc.fields[i];
@@ -44,7 +27,44 @@ class Program {
 				}
 			}
 		}
+	}
+
+	static void Main(String[] args) {
+		let structDecl =
+		"""
+		typedef struct Hush__Entity {
+			alignas(8) char m_member0[8];
+			alignas(8) char m_member1[8];
+		} Hush__Entity;
+
+		extern void * Hush__Entity__AddComponentRaw(Hush__Entity *self, unsigned long long componentId);
 		
+		""";
+
+		Console.WriteLine($"String to parse: \n{structDecl}\n\n");
+
+		let parser = scope CParser();
+		List<ParseRegion> parsingRegions = scope List<ParseRegion>(500);
+
+		EError err = parser.SeparateScopes(structDecl, ref parsingRegions);
+
+		if (err != EError.OK) {
+			Console.WriteLine($"Error parsing scopes: {err}");
+		}
+
+		for (ParseRegion region in parsingRegions) {
+			if (region.type == EScopeType.Struct) {
+				ProcessStruct(parser, region.content);
+				continue;
+			}
+			if (region.type == EScopeType.Function) {
+				FunctionProps functionProps;
+				err = parser.TryParseFunction(out functionProps, region.content);
+				Console.WriteLine($"Function: {region.content}");
+				continue;
+			}
+		}
+
 		Console.WriteLine("Finished parsing, contents written to file: ! (RETURN to exit)");
 		Console.Read();
 	}

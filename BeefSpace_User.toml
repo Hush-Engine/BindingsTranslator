@@ -1,10 +1,10 @@
 FileVersion = 1
 LastConfig = "Debug"
 LastPlatform = "Win64"
-RecentFilesList = ["src\\CParser.bf", "c:\\Program Files\\BeefLang\\BeefLibs\\corlib\\src\\Variant.bf", "c:\\Program Files\\BeefLang\\BeefLibs\\corlib\\src\\String.bf", "src\\Program.bf", "src\\Extensions.bf"]
+RecentFilesList = ["src\\Program.bf", "src\\CParser.bf", "Disassembly", "c:\\Program Files\\BeefLang\\BeefLibs\\corlib\\src\\Variant.bf", "c:\\Program Files\\BeefLang\\BeefLibs\\corlib\\src\\String.bf", "src\\Extensions.bf"]
 
 [MainWindow]
-X = 2713
+X = 1295
 Y = 208
 Width = 625
 Height = 587
@@ -43,8 +43,14 @@ DefaultDocumentsTabbedView = true
 Type = "TabbedView"
 
 [[MainDockingFrame.DockedWidgets.DockedWidgets.Tabs]]
+TabLabel = "Disassembly"
+TabWidth = 112.0
+TabIsPinned = false
+Type = "DisassemblyPanel"
+
+[[MainDockingFrame.DockedWidgets.DockedWidgets.Tabs]]
 TabLabel = "String.bf"
-TabWidth = 89.0
+TabWidth = 79.0
 TabIsPinned = false
 Type = "SourceViewPanel"
 FilePath = "c:\\Program Files\\BeefLang\\BeefLibs\\corlib\\src\\String.bf"
@@ -53,33 +59,33 @@ VertPos = 98394.0
 ProjectName = "corlib"
 
 [[MainDockingFrame.DockedWidgets.DockedWidgets.Tabs]]
-Active = true
 TabLabel = "CParser.bf"
-TabWidth = 99.0
+TabWidth = 89.0
 TabIsPinned = false
 Type = "SourceViewPanel"
 FilePath = "src\\CParser.bf"
-CursorPos = 2810
-VertPos = 2290.0
+CursorPos = 5861
+VertPos = 4439.0
 ProjectName = "HushBindingGen"
 
 [[MainDockingFrame.DockedWidgets.DockedWidgets.Tabs]]
 TabLabel = "Extensions.bf"
-TabWidth = 116.0
+TabWidth = 106.0
 TabIsPinned = false
 Type = "SourceViewPanel"
 FilePath = "src\\Extensions.bf"
 CursorPos = 247
-VertPos = 736.0
 ProjectName = "HushBindingGen"
 
 [[MainDockingFrame.DockedWidgets.DockedWidgets.Tabs]]
+Active = true
 TabLabel = "Program.bf"
-TabWidth = 106.0
+TabWidth = 96.0
 TabIsPinned = false
 Type = "SourceViewPanel"
 FilePath = "src\\Program.bf"
-CursorPos = 340
+CursorPos = 766
+VertPos = 382.375
 ProjectName = "HushBindingGen"
 
 [[MainDockingFrame.DockedWidgets]]
