@@ -27,7 +27,7 @@ public class BeefGenerator : ILangGenerator {
 			using System;
 			using System.Collections;
 
-			[CLink]
+			[CRepr]
 			""";
 		output.AppendF($"{DEFAULT_DECL}\nstruct {nameView} \{\n");
 		output.Append("\n}");
