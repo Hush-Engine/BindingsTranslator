@@ -4,7 +4,7 @@ using System.Collections;
 
 class Program {
 
-	private static void ProcessStruct(CParser parser, in StringView structDecl) {
+	private static void ProcessStruct(CParser parser, ILangGenerator generator, in StringView structDecl) {
 		StructDescription desc;
 		EError err = parser.TryParseStruct(out desc, structDecl);
 		if (err != EError.OK) {
@@ -27,6 +27,8 @@ class Program {
 				}
 			}
 		}
+
+		generator.EmitStruct(desc);
 	}
 
 	static void Main(String[] args) {
@@ -44,6 +46,8 @@ class Program {
 		Console.WriteLine($"String to parse: \n{structDecl}\n\n");
 
 		let parser = scope CParser();
+		let generator = scope BeefGenerator();
+
 		List<ParseRegion> parsingRegions = scope List<ParseRegion>(500);
 
 		EError err = parser.SeparateScopes(structDecl, ref parsingRegions);
@@ -54,7 +58,7 @@ class Program {
 
 		for (ParseRegion region in parsingRegions) {
 			if (region.type == EScopeType.Struct) {
-				ProcessStruct(parser, region.content);
+				ProcessStruct(parser, generator, region.content);
 				continue;
 			}
 			if (region.type == EScopeType.Function) {

@@ -596,7 +596,6 @@ class CParser {
 
 	public EError TryParseFunction(out FunctionProps functionProps, in StringView functionRegion) {
 		// Parse the signature first, name and return type later (harder lol)
-		
 		int startIndex;
 		StringView argListRaw = this.FindContentsInBetween(functionRegion, '(', ')', out startIndex);
 		functionProps = FunctionProps();
@@ -605,6 +604,25 @@ class CParser {
 		if (err != EError.OK) {
 			return err;
 		}
-		return EError.OK;
+
+		StringView nameAndRetType = functionRegion.Substring(0, startIndex);
+		Console.WriteLine($"Name and ret: {nameAndRetType}");
+
+		// Maybe the last idx could also be the pointer star, but, who knows :p
+		int lastSpace = nameAndRetType.LastIndexOf(' ');
+		StringView name = nameAndRetType.Substring(lastSpace + 1);
+		name.CopyTo(functionProps.name);
+		
+		StringView cleanRet = nameAndRetType.Substring(0, lastSpace);
+		const StringView EXTERN = "extern";
+		int externIdx = cleanRet.IndexOf(EXTERN);
+
+		if (externIdx != -1) {
+			cleanRet = cleanRet.Substring(externIdx + EXTERN.Length);
+		}
+		
+		// The rest we can assume is just the return type
+		err = this.TryParseType(cleanRet, ref functionProps.returnType, true);
+		return err;
 	}
 }
