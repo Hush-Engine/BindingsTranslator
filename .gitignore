@@ -1,6 +1,7 @@
 # Build directories
 build/
 recovery/
+generated/
 
 # IDE files
 *.user

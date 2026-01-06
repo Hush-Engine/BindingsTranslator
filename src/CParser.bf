@@ -142,6 +142,49 @@ class CParser {
 		return baseString.Substring(startIndex + 1, lastIndex);
 	}
 
+	public static uint64 GetSizeOf(ECType type) {
+		switch (type) {
+		case ECType.VOID:
+			return 0;
+		case ECType.INT8:
+			return sizeof(int8);
+		case ECType.INT16:
+			return sizeof(int16);
+		case ECType.INT:
+		case ECType.INT32:
+			return sizeof(int32);
+		case ECType.INT64:
+			return sizeof(int64);
+		case ECType.CHAR:
+			return sizeof(char8);
+		case ECType.UINT8:
+			return sizeof(uint8);
+		case ECType.UINT16:
+			return sizeof(uint16);
+		case ECType.UINT32:
+			return sizeof(uint32);
+		case ECType.UNSIGNED_LONG_LONG:
+		case ECType.UINT64:
+			return sizeof(uint64);
+		case ECType.FLOAT32:
+			return sizeof(float);
+		case ECType.FLOAT64:
+			return sizeof(double);
+		case ECType.BOOL8:
+			return sizeof(bool);
+		case ECType._BOOL:
+			return sizeof(bool);
+		case ECType.STRUCT:
+			// this.m_registeredStructsByName.ContainsKey(str);
+			return 0;
+		case ECType.FUNCTION_POINTER:
+			// NYI but we should
+			return 0;
+		default:
+			return 0;
+		}
+		return 0;
+	} 
 	
 	private bool IsTypeOrStruct(in StringView str) {
 		ECType hash = (ECType)str.Fnv1a();

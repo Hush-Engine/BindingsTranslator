@@ -39,6 +39,77 @@ class Program {
 			alignas(8) char m_member1[8];
 		} Hush__Entity;
 
+		typedef struct Vector4 {
+			float x;
+			float y;
+			float z;
+			float w;
+		} Vector4;
+
+		typedef struct DVector2 {
+			double x;
+			double y;
+		} DVector2;
+
+		typedef struct DVector3 {
+			double x;
+			double y;
+			double z;
+		} DVector3;
+
+		typedef struct DVector4 {
+			double x;
+			double y;
+			double z;
+			double w;
+		} DVector4;
+
+		typedef struct U8Vector2 {
+			uint8_t x;
+			uint8_t y;
+		} U8Vector2;
+
+		typedef struct I8Vector2 {
+			int8_t x;
+			int8_t y;
+		} I8Vector2;
+
+		typedef struct U16Vector2 {
+			uint16_t x;
+			uint16_t y;
+		} U16Vector2;
+
+		typedef struct I16Vector2 {
+			int16_t x;
+			int16_t y;
+		} I16Vector2;
+
+		typedef struct U32Vector2 {
+			uint32_t x;
+			uint32_t y;
+		} U32Vector2;
+
+		typedef struct I32Vector2 {
+			int32_t x;
+			int32_t y;
+		} I32Vector2;
+
+		typedef struct U64Vector2 {
+			uint64_t x;
+			uint64_t y;
+		} U64Vector2;
+
+		typedef struct I64Vector2 {
+			int64_t x;
+			int64_t y;
+		} I64Vector2;
+
+		typedef struct U8Vector3 {
+			uint8_t x;
+			uint8_t y;
+			uint8_t z;
+		} U8Vector3;
+
 		extern void * Hush__Entity__AddComponentRaw(Hush__Entity *self, unsigned long long componentId);
 		
 		""";

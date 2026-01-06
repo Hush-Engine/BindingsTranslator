@@ -1,8 +1,42 @@
 namespace HushBindingGen;
 
 using System;
+using System.IO;
 
 public class BeefGenerator : ILangGenerator {
+
+	private void ToTypeString(in TypeInfo type, String buffer) {
+		switch(type.type) {
+		case ECType.CHAR:
+			buffer.Append("char8");
+			return;
+		case ECType.FLOAT64:
+			buffer.Append("double");
+			return;
+		case ECType.FLOAT32:
+			buffer.Append("float");
+			return;
+		default:
+			type.type.ToString(buffer);
+			buffer.ToLower();
+			return;
+		}
+		
+	}
+	
+	public void EmitType(in TypeInfo type, ref String appendBuffer) {
+		if (type.kind != ETypeKind.STRUCT) {
+			String outType = scope String(16);
+			ToTypeString(type, outType);
+			appendBuffer.AppendF($"{outType}");
+		}
+		if (type.kind == ETypeKind.ARRAY) {
+			// Use the size of the array
+			// TODO: Handle pointers
+			uint64 elementSize = CParser.GetSizeOf(type.type);
+			appendBuffer.AppendF($"[{type.size / elementSize}]");
+		}
+	}
 
 	void ILangGenerator.EmitStruct(in StructDescription structDesc)
 	{
@@ -30,7 +64,25 @@ public class BeefGenerator : ILangGenerator {
 			[CRepr]
 			""";
 		output.AppendF($"{DEFAULT_DECL}\nstruct {nameView} \{\n");
-		output.Append("\n}");
+		for (uint32 i = 0; i < structDesc.fieldCount; i++) {
+			Argument* field = &structDesc.fields[i];
+			// First type, then name
+			output.Append("\tpublic "); // All fields in the export should be public
+			this.EmitType(field.typeInfo, ref output);
+			output.AppendF($" {field.name};\n"); // Now the name and the semicolon
+		}
+		output.Append("}");
+		if (!Directory.Exists("generated")) {
+			Directory.CreateDirectory("generated");
+		}
+		let filePath = scope $"generated/{nameView}";
+		let writeRes = File.WriteAllText(filePath, output);
+		
+		if (writeRes case .Err) {
+			Console.WriteLine($"Could not generate file {filePath}!");
+			return;
+		}
+		
 		Console.WriteLine($"Written struct:\n\n{output}");
 	}
 
