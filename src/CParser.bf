@@ -63,6 +63,8 @@ struct Argument {
 public enum EScopeType {
     Struct,
     Function,
+    Define,
+    Typedef,
     Unknown
 }
 
@@ -90,6 +92,60 @@ class CParser {
 	public Dictionary<StringView, FunctionProps> m_functions = new Dictionary<StringView, FunctionProps>() ~ delete _;
 
 	private Dictionary<String, Variant> m_defines = new Dictionary<String, Variant>() ~ delete _;
+
+	private Dictionary<String, ECType> m_primitiveTypedefs = new Dictionary<String, ECType>() ~ delete _;
+
+	~this() {
+		for (let entry in this.m_primitiveTypedefs) {
+			delete entry.key;
+		}
+		for (let entry in this.m_defines) {
+			delete entry.key;
+		}
+	}
+
+	public void AddDefinition(String key, Variant value) {
+		this.m_defines.TryAdd(key, value);
+	}
+
+	public Dictionary<String, Variant> GetDefinitions() {
+		return this.m_defines;
+	}
+
+	public EError TryParseDefine(in StringView str, out String key, out Variant value) {
+		key = null;
+		value = Variant();
+		// Well we find the end of the define, then we separate whatever is on the left side is the key, whatever's on the right is the value
+		const StringView DEFINE_STR = "#define";
+		int foundDefine = str.IndexOf(DEFINE_STR);
+		if (foundDefine == -1) {
+			return EError.FORMAT_ERROR;
+		}
+		StringView keyValueRaw = str.Substring(foundDefine + DEFINE_STR.Length + 1);
+		int spaceIdx = keyValueRaw.IndexOf(' ');
+		key = new String(keyValueRaw.Substring(0, spaceIdx));
+		StringView valueView = keyValueRaw.Substring(spaceIdx + 1);
+		
+		// Try float (strip f/F suffix if present)
+		StringView floatView = valueView;
+		if (valueView.EndsWith('f') || valueView.EndsWith('F')) {
+			floatView = valueView.Substring(0, valueView.Length - 1);
+		}
+	
+		if (double.Parse(floatView) case .Ok(let fVal)) {
+			if (valueView.Contains('.') || valueView.EndsWith('f') || valueView.EndsWith('F')) {
+				value = Variant.Create(fVal);
+				return EError.OK;
+			}
+		}
+	
+		// Try int32
+		if (int32.Parse(valueView) case .Ok(let iVal)) {
+			value = Variant.Create(iVal);
+			return EError.OK;
+		}
+		return EError.UNRECOGNIZED_TYPE;
+	}
 
 	private bool IsValidIdentifierChar(char8 c) {
 		return c.IsLetterOrDigit || c == '_';
@@ -232,7 +288,18 @@ class CParser {
 	        remaining = remaining.Substring(firstNonWhitespace);
 	        currentPos += (uint32)firstNonWhitespace;
         
-	        // Check for struct definition
+	        // Check for #define
+	        if (remaining.StartsWith("#define")) {
+	            int newlineIdx = remaining.IndexOf('\n');
+	            if (newlineIdx == -1) newlineIdx = remaining.Length;
+            
+	            ParseRegion region = .() { type = .Define, content = remaining.Substring(0, newlineIdx) };
+	            outRegions.Add(region);
+	            currentPos += (uint32)newlineIdx;
+	            continue;
+	        }
+        
+	        // Check for typedef struct (must come before plain typedef check)
 	        if (remaining.StartsWith("typedef struct")) {
 	            // Find the closing brace and semicolon
 	            int braceDepth = 0;
@@ -267,9 +334,25 @@ class CParser {
 	            ParseRegion region = .() { type = .Struct, content = remaining.Substring(0, endIdx) };
 	            outRegions.Add(region);
 	            currentPos += (uint32)endIdx;
+	            continue;
 	        }
+        
+	        // Check for plain typedef (like typedef uint32_t id_t;)
+	        if (remaining.StartsWith("typedef")) {
+	            int semiIdx = remaining.IndexOf(';');
+	            if (semiIdx == -1) {
+	                Console.WriteLine("Malformed typedef: no semicolon found");
+	                return EError.FORMAT_ERROR;
+	            }
+            
+	            ParseRegion region = .() { type = .Typedef, content = remaining.Substring(0, semiIdx + 1) };
+	            outRegions.Add(region);
+	            currentPos += (uint32)semiIdx + 1;
+	            continue;
+	        }
+        
 	        // Check for function declaration (extern or direct)
-	        else if (remaining.StartsWith("extern") || IsLikelyFunctionSignature(remaining)) {
+	        if (remaining.StartsWith("extern") || IsLikelyFunctionSignature(remaining)) {
 	            // Find the semicolon
 	            int semiIdx = remaining.IndexOf(';');
 	            if (semiIdx == -1) {
@@ -280,13 +363,13 @@ class CParser {
 	            ParseRegion region = .() { type = .Function, content = remaining.Substring(0, semiIdx + 1) };
 	            outRegions.Add(region);
 	            currentPos += (uint32)semiIdx + 1;
+	            continue;
 	        }
-	        else {
-	            // Skip unknown content until next line
-	            int nextLine = remaining.IndexOf('\n');
-	            if (nextLine == -1) break;
-	            currentPos += (uint32)nextLine + 1;
-	        }
+        
+	        // Skip unknown content until next line
+	        int nextLine = remaining.IndexOf('\n');
+	        if (nextLine == -1) break;
+	        currentPos += (uint32)nextLine + 1;
 	    }
     
 	    return EError.OK;

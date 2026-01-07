@@ -34,6 +34,25 @@ class Program {
 	static void Main(String[] args) {
 		let structDecl =
 		"""
+
+		#define Hush__ComponentTraits__EComponentOpsFlags_None 0
+		#define Hush__ComponentTraits__EComponentOpsFlags_HasCtor 1
+		#define Hush__ComponentTraits__EComponentOpsFlags_HasDtor 2
+		#define Hush__ComponentTraits__EComponentOpsFlags_HasCopy 4
+		#define Hush__ComponentTraits__EComponentOpsFlags_HasMove 8
+		#define Hush__ComponentTraits__EComponentOpsFlags_HasCopyCtor 16
+		#define Hush__ComponentTraits__EComponentOpsFlags_HasMoveCtor 32
+		#define Hush__ComponentTraits__EComponentOpsFlags_HasMoveDtor 64
+		#define Hush__ComponentTraits__EComponentOpsFlags_HasMoveAssignDtor 128
+		#define Hush__ComponentTraits__EComponentOpsFlags_NoCtor 256
+		#define Hush__ComponentTraits__EComponentOpsFlags_NoDtor 512
+		#define Hush__ComponentTraits__EComponentOpsFlags_NoCopy 1024
+		#define Hush__ComponentTraits__EComponentOpsFlags_NoMove 2048
+		#define Hush__ComponentTraits__EComponentOpsFlags_NoCopyCtor 4096
+		#define Hush__ComponentTraits__EComponentOpsFlags_NoMoveCtor 8192
+		#define Hush__ComponentTraits__EComponentOpsFlags_NoMoveDtor 16384
+		#define Hush__ComponentTraits__EComponentOpsFlags_NoMoveAssignDtor 32768
+
 		typedef struct Hush__Entity {
 			alignas(8) char m_member0[8];
 			alignas(8) char m_member1[8];
@@ -138,7 +157,20 @@ class Program {
 				Console.WriteLine($"Function: {region.content}");
 				continue;
 			}
+			if (region.type == EScopeType.Define) {
+				String key;
+				Variant value;
+				err = parser.TryParseDefine(region.content, out key, out value);
+				parser.AddDefinition(key, value);
+				continue;
+			}
+			if (region.type == EScopeType.Typedef) {
+				
+				continue;
+			}
 		}
+
+		generator.EmitConstants(parser.GetDefinitions());
 
 		Console.WriteLine("Finished parsing, contents written to file: ! (RETURN to exit)");
 		Console.Read();

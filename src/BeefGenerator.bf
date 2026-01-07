@@ -1,6 +1,7 @@
 namespace HushBindingGen;
 
 using System;
+using System.Collections;
 using System.IO;
 
 public class BeefGenerator : ILangGenerator {
@@ -22,6 +23,25 @@ public class BeefGenerator : ILangGenerator {
 			return;
 		}
 		
+	}
+	
+	public void EmitConstants(in Dictionary<String, Variant> constantDefines) {
+		if (!Directory.Exists("generated")) {
+			Directory.CreateDirectory("generated");
+		}
+		const uint64 guessSize = 1024 * 20; // 20kB for guess allocation
+		String output = scope String(guessSize);
+		String typeBuffer = scope String(16);
+		for (let entry in constantDefines) {
+			entry.value.VariantType.ToString(typeBuffer);
+			if (entry.value.VariantType.IsInteger) {
+				output.AppendF($"const {typeBuffer} = {entry.value.Get<int32>()};\n");
+			}
+			if (entry.value.VariantType.IsFloatingPoint) {
+				output.AppendF($"const {typeBuffer} = {entry.value.Get<double>()};\n");
+			}
+		}
+		File.WriteAllText("generated/Constants.bf", output);
 	}
 	
 	public void EmitType(in TypeInfo type, ref String appendBuffer) {
@@ -75,7 +95,7 @@ public class BeefGenerator : ILangGenerator {
 		if (!Directory.Exists("generated")) {
 			Directory.CreateDirectory("generated");
 		}
-		let filePath = scope $"generated/{nameView}";
+		let filePath = scope $"generated/{nameView}.bf";
 		let writeRes = File.WriteAllText(filePath, output);
 		
 		if (writeRes case .Err) {
