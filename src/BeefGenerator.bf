@@ -4,6 +4,12 @@ using System;
 using System.Collections;
 using System.IO;
 
+public struct ConstantDecl {
+	public char8[64] className;
+	public StringView name;
+	public Variant value;
+}
+
 public class BeefGenerator : ILangGenerator {
 
 	private void ToTypeString(in TypeInfo type, String buffer) {
@@ -31,15 +37,51 @@ public class BeefGenerator : ILangGenerator {
 		}
 		const uint64 guessSize = 1024 * 20; // 20kB for guess allocation
 		String output = scope String(guessSize);
-		String typeBuffer = scope String(16);
+		// Separate the __ into namespaces and classes, the first one should always be Hush__
+
+		let scopedConstants = scope Dictionary<StringView, List<ConstantDecl>>();
+
 		for (let entry in constantDefines) {
-			entry.value.VariantType.ToString(typeBuffer);
-			if (entry.value.VariantType.IsInteger) {
-				output.AppendF($"const {typeBuffer} = {entry.value.Get<int32>()};\n");
+			ConstantDecl toAdd = ConstantDecl();
+			const StringView HUSH_IDENTIFIER = "Hush__";
+			StringView constantName = entry.key;
+			int hushIdentifierIdx = constantName.IndexOf(HUSH_IDENTIFIER);
+			if (hushIdentifierIdx != -1) {
+				constantName = constantName.Substring(hushIdentifierIdx + HUSH_IDENTIFIER.Length);
 			}
-			if (entry.value.VariantType.IsFloatingPoint) {
-				output.AppendF($"const {typeBuffer} = {entry.value.Get<double>()};\n");
+			int classSeparatorIdx = constantName.IndexOf("__");
+			if (classSeparatorIdx != -1) {
+				StringView className = constantName.Substring(0, classSeparatorIdx);
+				className.CopyTo(toAdd.className);
+				constantName = constantName.Substring(classSeparatorIdx + 2);
 			}
+			toAdd.name = constantName;
+			toAdd.value = entry.value;
+			let key = StringView(&toAdd.className[0]);
+			if (!scopedConstants.ContainsKey(key)) {
+				let scopeList = new List<ConstantDecl>();
+				defer :: delete scopeList;
+				scopedConstants.Add(key, scopeList);
+			}
+			scopedConstants.GetValue(key).Value.Add(toAdd);
+		}
+
+		output.Append("namespace Hush;\n\n");
+
+		String typeBuffer = scope String(16);
+		for (let classScope in scopedConstants) {
+			output.AppendF($"class {classScope.key} \{\n");
+			for (let entry in classScope.value) {
+				entry.value.VariantType.ToString(typeBuffer);
+				defer typeBuffer.Clear();
+				if (entry.value.VariantType.IsInteger) {
+					output.AppendF($"\tpublic const {typeBuffer} {entry.name} = {entry.value.Get<int32>()};\n");
+				}
+				if (entry.value.VariantType.IsFloatingPoint) {
+					output.AppendF($"\tpublic const {typeBuffer} {entry.name} = {entry.value.Get<double>()};\n");
+				}
+			}
+			output.Append("}\n\n");
 		}
 		File.WriteAllText("generated/Constants.bf", output);
 	}
@@ -109,6 +151,14 @@ public class BeefGenerator : ILangGenerator {
 	void ILangGenerator.EmitMethod(in StringView module, in FunctionProps funcDesc)
 	{
 		// We can put functions with params as struct* self on the same file as the struct
+		// BUT, we still need a reference to the original function name to call it within the implemented function
+		// i.e Hush__Entity__AddComponentRaw can go under:
+		// class Entity {
+		//     AddComponentRaw() {
+		//         // But here we need to call it from the original C name
+		//         Hush__Entity__AddComponentRaw();
+		//     }
+		// }
 
 	}
 }
