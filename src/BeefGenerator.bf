@@ -1,6 +1,7 @@
 namespace HushBindingGen;
 
 using System;
+using System.Diagnostics;
 using System.Collections;
 using System.IO;
 
@@ -12,7 +13,9 @@ public struct ConstantDecl {
 
 public class BeefGenerator : ILangGenerator {
 
-	private void ToTypeString(in TypeInfo type, String buffer) {
+	public CParser Parser { get; set; }
+
+	private void ToTypeString(in TypeInfo type, String buffer, StringView* fieldName = null) {
 		switch(type.type) {
 		case ECType.CHAR:
 			buffer.Append("char8");
@@ -22,6 +25,23 @@ public class BeefGenerator : ILangGenerator {
 			return;
 		case ECType.FLOAT32:
 			buffer.Append("float");
+			return;
+		case ECType.FUNCTION_POINTER:
+			Debug.Assert(fieldName != null, "When parsing a function pointer a field name is necessary for a lookup into the functions table");
+			FunctionProps* fnProps = Parser.GetFunctionInfo(*fieldName);
+			Runtime.Assert(fnProps != null, scope $"Could not find a function pointer with the name {*fieldName}");
+			function void(int32, uint64) arg;
+			let retTypeBuff = scope String(16);
+			// Wooo, recursion
+			ToTypeString(fnProps.returnType, retTypeBuff);
+			buffer.AppendF($"function {retTypeBuff}(");
+			for (int i = 0; i < fnProps.args.Count && fnProps.args[i].typeInfo.type != ECType.UNDEFINED; i++) {
+				retTypeBuff.Clear();
+				ToTypeString(fnProps.args[i].typeInfo, retTypeBuff);
+				buffer.AppendF($"{retTypeBuff} {fnProps.args[i].name},");
+			}
+			buffer.Length--; // remove last comma
+			buffer.AppendF(")");
 			return;
 		default:
 			type.type.ToString(buffer);
@@ -86,10 +106,10 @@ public class BeefGenerator : ILangGenerator {
 		File.WriteAllText("generated/Constants.bf", output);
 	}
 	
-	public void EmitType(in TypeInfo type, ref String appendBuffer) {
+	public void EmitType(in TypeInfo type, ref String appendBuffer, StringView* fieldName = null) {
 		if (type.kind != ETypeKind.STRUCT) {
 			String outType = scope String(16);
-			ToTypeString(type, outType);
+			ToTypeString(type, outType, fieldName);
 			appendBuffer.AppendF($"{outType}");
 		}
 		if (type.kind == ETypeKind.ARRAY) {
@@ -102,6 +122,7 @@ public class BeefGenerator : ILangGenerator {
 
 	void ILangGenerator.EmitStruct(in StructDescription structDesc)
 	{
+		Debug.Assert(Parser != null, "Null parser when trying to parse a struct, please set the Parser property of this implementation");
 		// Given our source directory, we need to simply generate a Beef compatible struct string and put it into a file		
 
 		// First, the name of the file needs to resemble the name of the struct
@@ -130,7 +151,7 @@ public class BeefGenerator : ILangGenerator {
 			Argument* field = &structDesc.fields[i];
 			// First type, then name
 			output.Append("\tpublic "); // All fields in the export should be public
-			this.EmitType(field.typeInfo, ref output);
+			this.EmitType(field.typeInfo, ref output, &StringView(&field.name[0]));
 			output.AppendF($" {field.name};\n"); // Now the name and the semicolon
 		}
 		output.Append("}");

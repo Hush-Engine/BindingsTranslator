@@ -89,7 +89,7 @@ class CParser {
 	private Dictionary<StringView, StructDescription> m_registeredStructsByName = new Dictionary<StringView, StructDescription>() ~ delete _;
 
 	// A dictionary of all functions and function pointers
-	public Dictionary<StringView, FunctionProps> m_functions = new Dictionary<StringView, FunctionProps>() ~ delete _;
+	public Dictionary<String, FunctionProps> m_functions = new Dictionary<String, FunctionProps>() ~ delete _;
 
 	private Dictionary<String, Variant> m_defines = new Dictionary<String, Variant>() ~ delete _;
 
@@ -97,6 +97,9 @@ class CParser {
 
 	~this() {
 		for (let entry in this.m_primitiveTypedefs) {
+			delete entry.key;
+		}
+		for (let entry in this.m_functions) {
 			delete entry.key;
 		}
 		for (let entry in this.m_defines) {
@@ -110,6 +113,13 @@ class CParser {
 
 	public Dictionary<String, Variant> GetDefinitions() {
 		return this.m_defines;
+	}
+
+	public FunctionProps* GetFunctionInfo(in StringView key) {
+		String* outMatchKey;
+		FunctionProps* result = null;
+		this.m_functions.TryGetRef(scope String(key), out outMatchKey, out result);
+		return result;
 	}
 
 	public EError TryParseDefine(in StringView str, out String key, out Variant value) {
@@ -352,7 +362,8 @@ class CParser {
 	        }
         
 	        // Check for function declaration (extern or direct)
-	        if (remaining.StartsWith("extern") || IsLikelyFunctionSignature(remaining)) {
+			bool isExternFnSignature = (remaining.StartsWith("extern") && !remaining.Contains("\"C\""));
+	        if (isExternFnSignature || IsLikelyFunctionSignature(remaining)) {
 	            // Find the semicolon
 	            int semiIdx = remaining.IndexOf(';');
 	            if (semiIdx == -1) {
@@ -407,7 +418,7 @@ class CParser {
 		// Then we can maybe split by comma and parse the type one by one
 		err = TryParseRawArgumentList(ref functionProps, argumentSignature);
 
-		return err != EError.OK;
+		return err == EError.OK;
 	}
 
 	private EError TryParseRawArgumentList(ref FunctionProps functionProps, in StringView rawArgs) {
@@ -642,7 +653,7 @@ class CParser {
 			field.typeInfo.align = alignof(function void());
 
 			// This does a reference to the local fixed array, if the value type is destroyed, so should be the key
-			this.m_functions.TryAdd(nameView, functionPtrProps);
+			this.m_functions.TryAdd(new String(nameView), functionPtrProps);
 			return EError.OK;
 		}
 		
