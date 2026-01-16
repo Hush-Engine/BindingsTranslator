@@ -166,7 +166,8 @@ public class BeefGenerator : ILangGenerator {
 			return;
 		}
 		
-		Console.WriteLine($"Written struct:\n\n{output}");
+		// Console.WriteLine($"Written struct:\n\n{output}");
+		Console.WriteLine($"Written to file: {filePath}");
 	}
 
 	void ILangGenerator.EmitMethod(in StringView module, in FunctionProps funcDesc)
