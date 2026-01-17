@@ -6,7 +6,8 @@ enum ETypeKind {
 	PRIMITIVE,
 	STRUCT,
 	ARRAY,
-	FUNCTION_POINTER
+	FUNCTION_POINTER,
+	ENUM
 }
 
 enum ECType {
@@ -31,7 +32,8 @@ enum ECType {
 	_BOOL = "_Bool".Fnv1a(),
 	
 	STRUCT,
-	FUNCTION_POINTER
+	FUNCTION_POINTER,
+	ENUM
 }
 
 struct StructDescription {
@@ -42,6 +44,19 @@ struct StructDescription {
 	public uint32 fieldCount;
 	public uint64 size;
 	public uint64 align;
+}
+
+struct EnumDescription {
+	public const int64 MAX_ENUM_NAME = 128;
+	public const int64 MAX_ENUM_VALUES = 64;
+	public const int64 MAX_VALUE_NAME = 128;
+	
+	public char8[MAX_ENUM_NAME] name;
+	public char8[MAX_VALUE_NAME][MAX_ENUM_VALUES] valueNames;
+	public int64[MAX_ENUM_VALUES] valueInts;
+	public uint32 valueCount;
+	public int64 defaultValue;
+	public ECType underlyingType; // Maps to primitive integer type
 }
 
 struct TypeInfo {
@@ -65,6 +80,7 @@ public enum EScopeType {
     Function,
     Define,
     Typedef,
+    Enum,
     Unknown
 }
 
@@ -86,7 +102,9 @@ struct FunctionProps {
 class CParser {
 	const int64 MAX_FIELD_NAME = 128;
 
-	private Dictionary<String, StructDescription> m_registeredStructsByName = new Dictionary<String, StructDescription>() ~ delete _;
+private Dictionary<String, StructDescription> m_registeredStructsByName = new Dictionary<String, StructDescription>() ~ delete _;
+
+	private Dictionary<String, EnumDescription> m_registeredEnumsByName = new Dictionary<String, EnumDescription>() ~ delete _;
 
 	// A dictionary of all functions and function pointers
 	public Dictionary<String, FunctionProps> m_functions = new Dictionary<String, FunctionProps>() ~ delete _;
@@ -100,6 +118,9 @@ class CParser {
 			delete entry.key;
 		}
 		for (let entry in this.m_registeredStructsByName) {
+			delete entry.key;
+		}
+		for (let entry in this.m_registeredEnumsByName) {
 			delete entry.key;
 		}
 		for (let entry in this.m_functions) {
@@ -156,7 +177,15 @@ class CParser {
 	public TypeInfo* GetTypedefInfo(in StringView key) {
 		String* outMatchKey;
 		TypeInfo* result = null;
-		this.m_primitiveTypedefs.TryGetRef(scope String(key), out outMatchKey, out result);
+		let allocKey = scope String(key);
+		this.m_primitiveTypedefs.TryGetRef(allocKey, out outMatchKey, out result);
+		return result;
+	}
+
+	public EnumDescription* GetEnumInfo(in StringView key) {
+		String* outMatchKey;
+		EnumDescription* result = null;
+		this.m_registeredEnumsByName.TryGetRef(scope String(key), out outMatchKey, out result);
 		return result;
 	}
 	
@@ -181,7 +210,7 @@ class CParser {
 		typeInfo = TypeInfo();
 		this.TryParseType(typeRefStr, ref typeInfo, true);
 
-		key = new String(foundAlias);
+		key = new String(foundAlias.Strip());
 
 		return EError.OK;
 	}
@@ -307,9 +336,12 @@ class CParser {
 		case ECType.STRUCT:
 			// this.m_registeredStructsByName.ContainsKey(str);
 			return 0;
-		case ECType.FUNCTION_POINTER:
+case ECType.FUNCTION_POINTER:
 			// NYI but we should
 			return 0;
+		case ECType.ENUM:
+			// Default enum size is int32 (4 bytes)
+			return sizeof(int32);
 		default:
 			return 0;
 		}
@@ -337,7 +369,9 @@ class CParser {
 		case ECType.INT:
 			return true;
 		default:
-			return this.m_registeredStructsByName.ContainsKey(scope String(str));
+			return this.m_registeredStructsByName.ContainsKey(scope String(str)) ||
+				this.m_registeredEnumsByName.ContainsKey(scope String(str)) ||
+				this.m_primitiveTypedefs.ContainsKey(scope String(str));
 		}
 		return false;
 	}
@@ -389,16 +423,18 @@ class CParser {
 	            continue;
 	        }
 
-			if (remaining.StartsWith("typedef enum")) {
+if (remaining.StartsWith("typedef enum")) {
 				int endIdx = this.FindEndIndexOfTypeScope(remaining);
 
 				if (endIdx == 0) {
 				    Console.WriteLine("Malformed enum: no closing brace/semicolon found");
 				    return EError.FORMAT_ERROR;
 				}
-				currentPos += (uint32)endIdx;
-				Console.WriteLine("Enum NYI!");
-				continue;
+
+			    ParseRegion region = .() { type = .Enum, content = remaining.Substring(0, endIdx) };
+			    outRegions.Add(region);
+			    currentPos += (uint32)endIdx;
+			    continue;
 			}
 
 	        // Check for plain typedef (like typedef uint32_t id_t;)
@@ -634,6 +670,19 @@ class CParser {
 				break;
 			}
 
+			// Check if this is an enum
+			EnumDescription* enumRef = null;
+			bool isEnum = this.m_registeredEnumsByName.TryGetRef(scope String(strippedType), out match, out enumRef);
+			if (isEnum) {
+				typeInfo.type = ECType.ENUM;
+				typeInfo.kind = ETypeKind.ENUM;
+				typeInfo.size = GetSizeOf(enumRef.underlyingType);
+				typeInfo.align = GetSizeOf(enumRef.underlyingType);
+				typeInfo.structName = *match;
+				break;
+			}
+
+			// Check if this is a struct
 			typeInfo.type = ECType.STRUCT;
 			typeInfo.kind = ETypeKind.STRUCT;
 			StructDescription* structRef = null;
@@ -790,6 +839,139 @@ class CParser {
 		let key = new String(&structDesc.name[0]);
 		this.m_registeredStructsByName[key] = structDesc;
 
+return EError.OK;
+	}
+
+	/// @brief Parses an enum description, the string needs to be identified (from typedef enum to final enclosing curly bracket)
+	public EError TryParseEnum(out EnumDescription enumDesc, in StringView enumRegion) {
+		enumDesc = EnumDescription{};
+		enumDesc.underlyingType = ECType.INT32;
+		
+		uint32 index = 0;
+		for (StringView part in enumRegion.Split("\n")) {
+			// Identify the end of the enum
+			if (part.Contains('}')) {
+				// Extract the typedef name after the closing brace
+				int braceIdx = part.IndexOf('}');
+				StringView afterBrace = part.Substring(braceIdx + 1).Strip();
+				if (afterBrace.StartsWith(";")) {
+					afterBrace = afterBrace.Substring(1).Strip();
+				}
+				if (!afterBrace.IsEmpty) {
+					// Remove semicolon
+					afterBrace.Length--;
+					afterBrace.CopyTo(enumDesc.name);
+				}
+				break;
+			}
+			
+			if (index == 0) {
+				// First line should contain "typedef enum" and potentially the name
+				const String ENUM_DECL = "typedef enum ";
+				int indexBeforeWord = part.IndexOf(ENUM_DECL);
+				if (indexBeforeWord == -1) {
+					Console.WriteLine("First line of enum declaration should match typedef enum");
+					return EError.FORMAT_ERROR;
+				}
+				index++;
+				continue;
+			}
+			
+			// Parse enum values (skip empty lines and comments)
+			StringView trimmedPart = part.Strip();
+			if (trimmedPart.IsEmpty || trimmedPart.StartsWith("//") || trimmedPart.StartsWith("/*")) {
+				index++;
+				continue;
+			}
+			
+			// Parse individual enum value
+			EError err = TryParseEnumValue(ref enumDesc, trimmedPart);
+			if (err != EError.OK) {
+				return err;
+			}
+			index++;
+		}
+
+		let key = new String(&enumDesc.name[0]);
+		this.m_registeredEnumsByName[key] = enumDesc;
+
+		return EError.OK;
+	}
+
+	private EError TryParseEnumValue(ref EnumDescription enumDesc, in StringView enumLine) {
+		// Remove trailing comma and comments
+		StringView cleanLine = enumLine;
+		int commaIdx = enumLine.IndexOf(',');
+		if (commaIdx != -1) {
+			cleanLine = enumLine.Substring(0, commaIdx);
+		}
+		
+		// Remove any trailing comments
+		int commentIdx = cleanLine.IndexOf("//");
+		if (commentIdx != -1) {
+			cleanLine = cleanLine.Substring(0, commentIdx).Strip();
+		}
+		cleanLine = cleanLine.Strip();
+		
+		if (cleanLine.IsEmpty) {
+			return EError.OK; // Skip empty lines
+		}
+		
+		// Split by = to separate name and value
+		int equalIdx = cleanLine.IndexOf('=');
+		StringView namePart;
+		StringView valuePart;
+		
+		if (equalIdx != -1) {
+			namePart = cleanLine.Substring(0, equalIdx).Strip();
+			valuePart = cleanLine.Substring(equalIdx + 1).Strip();
+		} else {
+			namePart = cleanLine;
+			valuePart = "";
+		}
+		
+		// Copy the enum value name
+		if (enumDesc.valueCount >= EnumDescription.MAX_ENUM_VALUES) {
+			Console.WriteLine($"Too many enum values in {enumDesc.name}, max is {EnumDescription.MAX_ENUM_VALUES}");
+			return EError.FORMAT_ERROR;
+		}
+		
+		namePart.CopyTo(enumDesc.valueNames[enumDesc.valueCount]);
+		
+		// Parse the value (if not provided, use previous value + 1 or 0 for first)
+		if (valuePart.IsEmpty) {
+			if (enumDesc.valueCount == 0) {
+				enumDesc.valueInts[enumDesc.valueCount] = 0;
+			} else {
+				enumDesc.valueInts[enumDesc.valueCount] = enumDesc.valueInts[enumDesc.valueCount - 1] + 1;
+			}
+		} else {
+			// Try to parse as integer
+			if (int64.Parse(valuePart) case .Ok(let val)) {
+				enumDesc.valueInts[enumDesc.valueCount] = val;
+			} else {
+				// Handle hex values and other formats
+				if (valuePart.StartsWith("0x") || valuePart.StartsWith("0X")) {
+					StringView hexPart = valuePart.Substring(2);
+					if (int64.Parse(hexPart, .HexNumber) case .Ok(let hexVal)) {
+						enumDesc.valueInts[enumDesc.valueCount] = hexVal;
+					} else {
+						Console.WriteLine($"Could not parse enum value: {valuePart}");
+						return EError.FORMAT_ERROR;
+					}
+				} else {
+					Console.WriteLine($"Could not parse enum value: {valuePart}");
+					return EError.FORMAT_ERROR;
+				}
+			}
+		}
+		
+		// Set default value (first value)
+		if (enumDesc.valueCount == 0) {
+			enumDesc.defaultValue = enumDesc.valueInts[0];
+		}
+		
+		enumDesc.valueCount++;
 		return EError.OK;
 	}
 

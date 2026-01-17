@@ -32,6 +32,21 @@ class Program {
 		generator.EmitStruct(desc);
 	}
 
+	private static void ProcessEnum(CParser parser, ILangGenerator generator, in StringView enumDecl) {
+		EnumDescription desc;
+		EError err = parser.TryParseEnum(out desc, enumDecl);
+		if (err != EError.OK) {
+			Console.WriteLine($"Error {err}!");
+		}
+
+		Console.WriteLine($"Enum: {desc.name}");
+		// for (uint32 i = 0; i < desc.valueCount; i++) {
+		// 	Console.WriteLine($"  Value: {desc.valueNames[i]} = {desc.valueInts[i]}");
+		// }
+
+		generator.EmitEnum(desc);
+	}
+
 	static void Main(String[] args) {
 		// The first arg should contain the input file
 #if !DEBUG
@@ -72,6 +87,10 @@ class Program {
 				ProcessStruct(parser, generator, region.content);
 				continue;
 			}
+			if (region.type == EScopeType.Enum) {
+				ProcessEnum(parser, generator, region.content);
+				continue;
+			}
 			if (region.type == EScopeType.Function) {
 				FunctionProps functionProps;
 				err = parser.TryParseFunction(out functionProps, region.content);
@@ -89,6 +108,7 @@ class Program {
 				String key;
 				TypeInfo typeInfo;
 				err = parser.TryParseTypedef(region.content, out key, out typeInfo);
+				parser.AddTypedef(key, typeInfo);
 				continue;
 			}
 		}

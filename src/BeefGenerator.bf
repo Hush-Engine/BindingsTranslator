@@ -46,6 +46,10 @@ public class BeefGenerator : ILangGenerator {
 			buffer.Length--; // remove last comma
 			buffer.AppendF(")");
 			return;
+		case ECType.ENUM:
+			// For enum types, use the underlying type until we implement it in the generator
+			buffer.Append("int32");
+			return;
 		default:
 			type.type.ToString(buffer);
 			buffer.ToLower();
@@ -170,6 +174,60 @@ public class BeefGenerator : ILangGenerator {
 		}
 		
 		// Console.WriteLine($"Written struct:\n\n{output}");
+		Console.WriteLine($"Written to file: {filePath}");
+	}
+
+	void ILangGenerator.EmitEnum(in EnumDescription enumDesc)
+	{
+		Debug.Assert(Parser != null, "Null parser when trying to parse an enum, please set the Parser property of this implementation");
+
+		// First, name of the file needs to resemble the name of the enum
+		const StringView HUSH_PREFIX = "Hush__";
+
+		StringView nameView = StringView(&enumDesc.name[0]);
+		int prefixIndex = nameView.IndexOf(HUSH_PREFIX);
+
+		if (prefixIndex != -1) {
+			nameView = nameView.Substring(prefixIndex + HUSH_PREFIX.Length);
+		}
+
+		const uint64 MAX_ENUM_GEN_LENGTH = MemUtils.KiB(2); // 2kB should be enough for any enum
+		String output = scope String(MAX_ENUM_GEN_LENGTH);
+		const StringView DEFAULT_DECL =
+			"""
+			namespace Hush;
+
+			using System;
+			using System.Collections;
+
+			[CRepr]
+			""";
+		
+		output.AppendF($"{DEFAULT_DECL}\nenum {nameView} : int32 \{\n");
+		for (uint32 i = 0; i < enumDesc.valueCount; i++) {
+			StringView valueNameView = StringView(&enumDesc.valueNames[i][0]);
+			
+			// Remove Hush__ prefix from enum values if present
+			int valuePrefixIndex = valueNameView.IndexOf(HUSH_PREFIX);
+			if (valuePrefixIndex != -1) {
+				valueNameView = valueNameView.Substring(valuePrefixIndex + HUSH_PREFIX.Length);
+			}
+			
+			output.AppendF($"\t{valueNameView} = {enumDesc.valueInts[i]},\n");
+		}
+		output.Append("}");
+
+		if (!Directory.Exists("generated")) {
+			Directory.CreateDirectory("generated");
+		}
+		let filePath = scope $"generated/{nameView}.bf";
+		let writeRes = File.WriteAllText(filePath, output);
+		
+		if (writeRes case .Err) {
+			Console.WriteLine($"Could not generate file {filePath}!");
+			return;
+		}
+		
 		Console.WriteLine($"Written to file: {filePath}");
 	}
 
