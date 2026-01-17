@@ -86,7 +86,7 @@ struct FunctionProps {
 class CParser {
 	const int64 MAX_FIELD_NAME = 128;
 
-	private Dictionary<StringView, StructDescription> m_registeredStructsByName = new Dictionary<StringView, StructDescription>() ~ delete _;
+	private Dictionary<String, StructDescription> m_registeredStructsByName = new Dictionary<String, StructDescription>() ~ delete _;
 
 	// A dictionary of all functions and function pointers
 	public Dictionary<String, FunctionProps> m_functions = new Dictionary<String, FunctionProps>() ~ delete _;
@@ -97,6 +97,9 @@ class CParser {
 
 	~this() {
 		for (let entry in this.m_primitiveTypedefs) {
+			delete entry.key;
+		}
+		for (let entry in this.m_registeredStructsByName) {
 			delete entry.key;
 		}
 		for (let entry in this.m_functions) {
@@ -273,7 +276,7 @@ class CParser {
 		case ECType.INT:
 			return true;
 		default:
-			return this.m_registeredStructsByName.ContainsKey(str);
+			return this.m_registeredStructsByName.ContainsKey(scope String(str));
 		}
 		return false;
 	}
@@ -573,10 +576,10 @@ class CParser {
 			typeInfo.type = ECType.STRUCT;
 			typeInfo.kind = ETypeKind.STRUCT;
 			let key = scope String(strippedType);
-			StringView* match = null;
+			String* match = null;
 			StructDescription* structRef = null;
 			// TODO: DO NOT CHECK struct register if the pointer level is >= 1 (forward declaration)
-			bool contains = this.m_registeredStructsByName.TryGetRef(strippedType, out match, out structRef);
+			bool contains = this.m_registeredStructsByName.TryGetRef(scope String(strippedType), out match, out structRef);
 			if (!contains) {
 				Console.WriteLine($"Could not find struct by the name of {strippedType}, make sure it is declared before its usage!");
 				return EError.UNRECOGNIZED_TYPE;
@@ -674,7 +677,7 @@ class CParser {
 		wordBuffer.Clear();
 
 		StringView typeString = line.Substring(0, startNameIdx + 1);
-		err = this.TryParseType(typeString, ref field.typeInfo);
+		err = this.TryParseType(typeString, ref field.typeInfo, true);
 		if (err != EError.OK) {
 			return err;
 		}
@@ -725,7 +728,7 @@ class CParser {
 			index++;
 		}
 
-		let key = scope String(&structDesc.name[0]);
+		let key = new String(&structDesc.name[0]);
 		this.m_registeredStructsByName[key] = structDesc;
 
 		return EError.OK;

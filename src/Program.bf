@@ -34,14 +34,16 @@ class Program {
 
 	static void Main(String[] args) {
 		// The first arg should contain the input file
-
+#if !DEBUG
 		if (args.Count < 1) {
 			Console.WriteLine("Not enough arguments provided, at least one positional argument is needed, run with -help for more information");
 			return;
 		}
-
 		StringView filePath = args[0];
-		const int FILE_LENGTH_PREDICTION = MemUtils.MiB(2); // We can reserve at least 2MB 
+#else
+		StringView filePath = "HushBindings.h";
+#endif
+		const uint64 FILE_LENGTH_PREDICTION = MemUtils.MiB(2); // We can reserve at least 2MB 
 		String fileBuffer = new String(FILE_LENGTH_PREDICTION);
 		defer delete fileBuffer;
 		let result = File.ReadAllText(filePath, fileBuffer);
@@ -50,7 +52,6 @@ class Program {
 			Console.WriteLine($"Could not read file given by input, error: {e}!");
 			return;
 		}
-
 		
 		Console.WriteLine($"Parsing file: \n{filePath}...\n\n");
 

@@ -17,6 +17,9 @@ public class BeefGenerator : ILangGenerator {
 
 	private void ToTypeString(in TypeInfo type, String buffer, StringView* fieldName = null) {
 		switch(type.type) {
+		case ECType.UNDEFINED:
+			Debug.Assert(false, "Undefined type cannot be parsed! Review parsing for this struct field");
+			return;
 		case ECType.CHAR:
 			buffer.Append("char8");
 			return;
