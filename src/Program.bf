@@ -86,7 +86,9 @@ class Program {
 				continue;
 			}
 			if (region.type == EScopeType.Typedef) {
-				
+				String key;
+				TypeInfo typeInfo;
+				err = parser.TryParseTypedef(region.content, out key, out typeInfo);
 				continue;
 			}
 		}

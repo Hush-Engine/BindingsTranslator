@@ -93,7 +93,7 @@ class CParser {
 
 	private Dictionary<String, Variant> m_defines = new Dictionary<String, Variant>() ~ delete _;
 
-	private Dictionary<String, ECType> m_primitiveTypedefs = new Dictionary<String, ECType>() ~ delete _;
+	private Dictionary<String, TypeInfo> m_primitiveTypedefs = new Dictionary<String, TypeInfo>() ~ delete _;
 
 	~this() {
 		for (let entry in this.m_primitiveTypedefs) {
@@ -118,6 +118,34 @@ class CParser {
 		return this.m_defines;
 	}
 
+	private int FindEndIndexOfTypeScope(in StringView region) {
+		// Find the closing brace and semicolon
+        int braceDepth = 0;
+        int endIdx = 0;
+        bool foundOpenBrace = false;
+    
+        for (int i = 0; i < region.Length; i++) {
+            char8 c = region[i];
+            if (c == '{') {
+                braceDepth++;
+                foundOpenBrace = true;
+            } else if (c == '}') {
+                braceDepth--;
+                if (foundOpenBrace && braceDepth == 0) {
+                    // Find the semicolon after the closing brace
+                    for (int j = i + 1; j < region.Length; j++) {
+                        if (region[j] == ';') {
+                            endIdx = j + 1;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+		return endIdx;
+	}
+
 	public FunctionProps* GetFunctionInfo(in StringView key) {
 		String* outMatchKey;
 		FunctionProps* result = null;
@@ -125,6 +153,39 @@ class CParser {
 		return result;
 	}
 
+	public TypeInfo* GetTypedefInfo(in StringView key) {
+		String* outMatchKey;
+		TypeInfo* result = null;
+		this.m_primitiveTypedefs.TryGetRef(scope String(key), out outMatchKey, out result);
+		return result;
+	}
+	
+	public void AddTypedef(String key, TypeInfo typeInfo) {
+		this.m_primitiveTypedefs[key] = typeInfo;
+	}
+
+	public EError TryParseTypedef(in StringView str, out String key, out TypeInfo typeInfo) {
+		// Assumes the typedef is valid
+		// We'll start by the last semicolon, and find the uninterrupted identifier, that's the entry
+		key = null;
+		// int semicolonIdx = str.IndexOf(';');
+		int spaceIdx = str.LastIndexOf(' ');
+		
+		StringView foundAlias = str.Substring(spaceIdx);
+		// Remove semicolon
+		foundAlias.Length--;
+		const StringView TYPEDEF = "typedef";
+		int offset = spaceIdx - TYPEDEF.Length;
+		StringView typeRefStr = str.Substring(TYPEDEF.Length, offset).Strip();
+
+		typeInfo = TypeInfo();
+		this.TryParseType(typeRefStr, ref typeInfo, true);
+
+		key = new String(foundAlias);
+
+		return EError.OK;
+	}
+	
 	public EError TryParseDefine(in StringView str, out String key, out Variant value) {
 		key = null;
 		value = Variant();
@@ -315,29 +376,7 @@ class CParser {
 	        // Check for typedef struct (must come before plain typedef check)
 	        if (remaining.StartsWith("typedef struct")) {
 	            // Find the closing brace and semicolon
-	            int braceDepth = 0;
-	            int endIdx = 0;
-	            bool foundOpenBrace = false;
-            
-	            for (int i = 0; i < remaining.Length; i++) {
-	                char8 c = remaining[i];
-	                if (c == '{') {
-	                    braceDepth++;
-	                    foundOpenBrace = true;
-	                } else if (c == '}') {
-	                    braceDepth--;
-	                    if (foundOpenBrace && braceDepth == 0) {
-	                        // Find the semicolon after the closing brace
-	                        for (int j = i + 1; j < remaining.Length; j++) {
-	                            if (remaining[j] == ';') {
-	                                endIdx = j + 1;
-	                                break;
-	                            }
-	                        }
-	                        break;
-	                    }
-	                }
-	            }
+	            int endIdx = this.FindEndIndexOfTypeScope(remaining);
             
 	            if (endIdx == 0) {
 	                Console.WriteLine("Malformed struct: no closing brace/semicolon found");
@@ -349,7 +388,19 @@ class CParser {
 	            currentPos += (uint32)endIdx;
 	            continue;
 	        }
-        
+
+			if (remaining.StartsWith("typedef enum")) {
+				int endIdx = this.FindEndIndexOfTypeScope(remaining);
+
+				if (endIdx == 0) {
+				    Console.WriteLine("Malformed enum: no closing brace/semicolon found");
+				    return EError.FORMAT_ERROR;
+				}
+				currentPos += (uint32)endIdx;
+				Console.WriteLine("Enum NYI!");
+				continue;
+			}
+
 	        // Check for plain typedef (like typedef uint32_t id_t;)
 	        if (remaining.StartsWith("typedef")) {
 	            int semiIdx = remaining.IndexOf(';');
@@ -502,7 +553,7 @@ class CParser {
 		switch (hash) {
 		case ECType.VOID:
 			typeInfo.type = ECType.VOID;
-			break;
+			break;	
 		case ECType.INT8:
 			typeInfo.type = ECType.INT8;
 			typeInfo.size = sizeof(int8);
@@ -566,17 +617,25 @@ class CParser {
 			typeInfo.align = alignof(double);
 			break;
 		case ECType.BOOL8:
-		case ECType._BOOL:
 			typeInfo.type = ECType.BOOL8;
 			typeInfo.size = sizeof(bool);
 			typeInfo.align = alignof(bool);
 			break;
 		
 		default:
-			typeInfo.type = ECType.STRUCT;
-			typeInfo.kind = ETypeKind.STRUCT;
+			// Let's first check if this is a typedef
 			let key = scope String(strippedType);
 			String* match = null;
+
+			TypeInfo* typedefTypeInfo = this.GetTypedefInfo(key);
+
+			if (typedefTypeInfo != null) {
+				typeInfo = *typedefTypeInfo;
+				break;
+			}
+
+			typeInfo.type = ECType.STRUCT;
+			typeInfo.kind = ETypeKind.STRUCT;
 			StructDescription* structRef = null;
 			// TODO: DO NOT CHECK struct register if the pointer level is >= 1 (forward declaration)
 			bool contains = this.m_registeredStructsByName.TryGetRef(scope String(strippedType), out match, out structRef);
