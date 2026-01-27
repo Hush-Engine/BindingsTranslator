@@ -35,11 +35,14 @@ namespace System {
 		    return hash;
 		}
 
-		public void CountAndGetFirstIdx(char8 token, out int count, out int firstIndex) {
+		public void CountConsecutiveAndGetFirstIdx(char8 token, out int count, out int firstIndex) {
 			count = 0;
 			firstIndex = -1;
 			for (int i = 0; i < this.mLength; i++) {
-				if (this[i] != token) continue;
+				if (this[i] != token) {
+					if (firstIndex != -1) break; // Not consecutive
+					continue;
+				}
 				count++;
 				if (firstIndex == -1) {
 					firstIndex = i;

@@ -29,11 +29,20 @@ enum ECType {
 	// Type equivalents (only here for string comparisons)
 	INT = "int".Fnv1a(),
 	UNSIGNED_LONG_LONG = "unsigned long long".Fnv1a(),
+	SIGNED_CHAR = "signed char".Fnv1a(),
+	SIZE_T = "size_t".Fnv1a(),
 	_BOOL = "_Bool".Fnv1a(),
 	
 	STRUCT,
 	FUNCTION_POINTER,
 	ENUM
+}
+
+
+struct TypeScopeExtent {
+	public int braceDepth;
+	public bool hasOpenBrace;
+	public int endIdx;
 }
 
 struct StructDescription {
@@ -102,7 +111,7 @@ struct FunctionProps {
 class CParser {
 	const int64 MAX_FIELD_NAME = 128;
 
-private Dictionary<String, StructDescription> m_registeredStructsByName = new Dictionary<String, StructDescription>() ~ delete _;
+	private Dictionary<String, StructDescription> m_registeredStructsByName = new Dictionary<String, StructDescription>() ~ delete _;
 
 	private Dictionary<String, EnumDescription> m_registeredEnumsByName = new Dictionary<String, EnumDescription>() ~ delete _;
 
@@ -139,24 +148,22 @@ private Dictionary<String, StructDescription> m_registeredStructsByName = new Di
 		return this.m_defines;
 	}
 
-	private int FindEndIndexOfTypeScope(in StringView region) {
+	private TypeScopeExtent FindEndIndexOfTypeScope(in StringView region) {
 		// Find the closing brace and semicolon
-        int braceDepth = 0;
-        int endIdx = 0;
-        bool foundOpenBrace = false;
+		TypeScopeExtent result = TypeScopeExtent();
     
         for (int i = 0; i < region.Length; i++) {
             char8 c = region[i];
             if (c == '{') {
-                braceDepth++;
-                foundOpenBrace = true;
+                result.braceDepth++;
+                result.hasOpenBrace = true;
             } else if (c == '}') {
-                braceDepth--;
-                if (foundOpenBrace && braceDepth == 0) {
+                result.braceDepth--;
+                if (result.hasOpenBrace && result.braceDepth == 0) {
                     // Find the semicolon after the closing brace
                     for (int j = i + 1; j < region.Length; j++) {
                         if (region[j] == ';') {
-                            endIdx = j + 1;
+                            result.endIdx = j + 1;
                             break;
                         }
                     }
@@ -164,7 +171,8 @@ private Dictionary<String, StructDescription> m_registeredStructsByName = new Di
                 }
             }
         }
-		return endIdx;
+
+		return result;
 	}
 
 	public FunctionProps* GetFunctionInfo(in StringView key) {
@@ -180,6 +188,17 @@ private Dictionary<String, StructDescription> m_registeredStructsByName = new Di
 		let allocKey = scope String(key);
 		this.m_primitiveTypedefs.TryGetRef(allocKey, out outMatchKey, out result);
 		return result;
+	}
+
+	public StructDescription* GetStructByName(in StringView key) {
+		String* outMatchKey;
+		StructDescription* result = null;
+		this.m_registeredStructsByName.TryGetRef(scope String(key), out outMatchKey, out result);
+		return result;
+	}
+
+	public int GetStructCount() {
+		return this.m_registeredStructsByName.Count;
 	}
 
 	public EnumDescription* GetEnumInfo(in StringView key) {
@@ -305,7 +324,7 @@ private Dictionary<String, StructDescription> m_registeredStructsByName = new Di
 		switch (type) {
 		case ECType.VOID:
 			return 0;
-		case ECType.INT8:
+		case ECType.INT8, ECType.SIGNED_CHAR:
 			return sizeof(int8);
 		case ECType.INT16:
 			return sizeof(int16);
@@ -334,9 +353,8 @@ private Dictionary<String, StructDescription> m_registeredStructsByName = new Di
 		case ECType._BOOL:
 			return sizeof(bool);
 		case ECType.STRUCT:
-			// this.m_registeredStructsByName.ContainsKey(str);
 			return 0;
-case ECType.FUNCTION_POINTER:
+		case ECType.FUNCTION_POINTER:
 			// NYI but we should
 			return 0;
 		case ECType.ENUM:
@@ -352,7 +370,7 @@ case ECType.FUNCTION_POINTER:
 		ECType hash = (ECType)str.Fnv1a();
 		switch (hash) {
 		case ECType.VOID:
-		case ECType.INT8:
+		case ECType.INT8, ECType.SIGNED_CHAR:
 		case ECType.INT16:
 		case ECType.INT32:
 		case ECType.INT64:
@@ -410,12 +428,18 @@ case ECType.FUNCTION_POINTER:
 	        // Check for typedef struct (must come before plain typedef check)
 	        if (remaining.StartsWith("typedef struct")) {
 	            // Find the closing brace and semicolon
-	            int endIdx = this.FindEndIndexOfTypeScope(remaining);
+	            TypeScopeExtent scopeDesc = this.FindEndIndexOfTypeScope(remaining);
+				int endIdx = scopeDesc.endIdx;
             
-	            if (endIdx == 0) {
-	                Console.WriteLine("Malformed struct: no closing brace/semicolon found");
+				if (endIdx == 0) {
+		            if (!scopeDesc.hasOpenBrace) {
+						// It could be a handle, check whether or not we have a semicolon, and respond accordingly
+						// Go to the next semicolon
+						
+		            }
+	                Console.WriteLine("Malformed struct or handle: no closing brace/semicolon found");
 	                return EError.FORMAT_ERROR;
-	            }
+				}
             
 	            ParseRegion region = .() { type = .Struct, content = remaining.Substring(0, endIdx) };
 	            outRegions.Add(region);
@@ -423,8 +447,9 @@ case ECType.FUNCTION_POINTER:
 	            continue;
 	        }
 
-if (remaining.StartsWith("typedef enum")) {
-				int endIdx = this.FindEndIndexOfTypeScope(remaining);
+			if (remaining.StartsWith("typedef enum")) {
+				TypeScopeExtent scopeDesc = this.FindEndIndexOfTypeScope(remaining);
+				int endIdx = scopeDesc.endIdx;
 
 				if (endIdx == 0) {
 				    Console.WriteLine("Malformed enum: no closing brace/semicolon found");
@@ -550,6 +575,7 @@ if (remaining.StartsWith("typedef enum")) {
 		var typeString; // Mutable copy
 		const String CONST_IDENTIFIER = "const";
 		const String ALIGNAS_IDENTIFIER = "alignas";
+		const String ENUM_IDENTIFIER = "enum";
 
 		int alignIdx = typeString.IndexOf(ALIGNAS_IDENTIFIER);
 		int _;
@@ -571,12 +597,17 @@ if (remaining.StartsWith("typedef enum")) {
 			typeString = typeString.Substring(constIdx + CONST_IDENTIFIER.Length);
 		}
 
+		int enumIdx = typeString.IndexOf(ENUM_IDENTIFIER);
+		if (enumIdx != -1) {
+			typeString = typeString.Substring(enumIdx + ENUM_IDENTIFIER.Length);
+		}
+
 		// Count ptrs and susbtring replace
 		if (countPtrLevel) {
 			int pointerCount;
 			int ptrFirstIdx;
 
-			typeString.CountAndGetFirstIdx('*', out pointerCount, out ptrFirstIdx);
+			typeString.CountConsecutiveAndGetFirstIdx('*', out pointerCount, out ptrFirstIdx);
 			if (ptrFirstIdx != -1) {
 				typeString = typeString.Substring(0, ptrFirstIdx);
 				typeInfo.pointerLevel = (uint8)pointerCount;
@@ -590,7 +621,7 @@ if (remaining.StartsWith("typedef enum")) {
 		case ECType.VOID:
 			typeInfo.type = ECType.VOID;
 			break;	
-		case ECType.INT8:
+		case ECType.INT8, ECType.SIGNED_CHAR:
 			typeInfo.type = ECType.INT8;
 			typeInfo.size = sizeof(int8);
 			typeInfo.align = alignof(int8);
@@ -636,8 +667,7 @@ if (remaining.StartsWith("typedef enum")) {
 			typeInfo.size = sizeof(uint32);
 			typeInfo.align = alignof(uint32);
 			break;
-		case ECType.UNSIGNED_LONG_LONG:
-		case ECType.UINT64:
+		case ECType.UNSIGNED_LONG_LONG, ECType.UINT64, ECType.SIZE_T:
 			typeInfo.type = ECType.UINT64;
 			typeInfo.size = sizeof(uint64);
 			typeInfo.align = alignof(uint64);
@@ -689,6 +719,15 @@ if (remaining.StartsWith("typedef enum")) {
 			// TODO: DO NOT CHECK struct register if the pointer level is >= 1 (forward declaration)
 			bool contains = this.m_registeredStructsByName.TryGetRef(scope String(strippedType), out match, out structRef);
 			if (!contains) {
+				// Edge case for handles, we need to replace them with a void* or handle
+				if (countPtrLevel && typeInfo.pointerLevel > 0) {
+					// TODO: Maybe create a "special" handle type for this
+					typeInfo.type = ECType.VOID;
+					typeInfo.kind = ETypeKind.PRIMITIVE;
+					typeInfo.size = sizeof(void*);
+					typeInfo.align = alignof(void*);
+					return EError.OK;
+				}
 				Console.WriteLine($"Could not find struct by the name of {strippedType}, make sure it is declared before its usage!");
 				return EError.UNRECOGNIZED_TYPE;
 			}
@@ -736,14 +775,6 @@ if (remaining.StartsWith("typedef enum")) {
 	
 	private EError TryParseStructField(ref StructDescription structDesc, StringView line) {
 		var line; // Make mutable copy
-		// A struct field is whatever the first non whitespace word is, along with its pointer level
-		// Run the array backwards to find all other info in one go
-		
-		// IMPORTANT: MISSING EDGE CASES (delete as we implement)
-		// - Array types [] and [n]
-		// - Function pointers
-		// - _Bool
-
 		
 		// Identify the array before the rest of it all lol
 		uint64 arraySize;
@@ -839,7 +870,7 @@ if (remaining.StartsWith("typedef enum")) {
 		let key = new String(&structDesc.name[0]);
 		this.m_registeredStructsByName[key] = structDesc;
 
-return EError.OK;
+		return EError.OK;
 	}
 
 	/// @brief Parses an enum description, the string needs to be identified (from typedef enum to final enclosing curly bracket)

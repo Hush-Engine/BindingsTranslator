@@ -19,16 +19,19 @@ public class BeefGenerator : ILangGenerator {
 		switch(type.type) {
 		case ECType.UNDEFINED:
 			Debug.Assert(false, "Undefined type cannot be parsed! Review parsing for this struct field");
-			return;
+			break;
 		case ECType.CHAR:
 			buffer.Append("char8");
-			return;
+			break;
 		case ECType.FLOAT64:
 			buffer.Append("double");
-			return;
+			break;
 		case ECType.FLOAT32:
 			buffer.Append("float");
-			return;
+			break;
+		case ECType.SIZE_T:
+			buffer.Append("uint64");
+			break;
 		case ECType.FUNCTION_POINTER:
 			Debug.Assert(fieldName != null, "When parsing a function pointer a field name is necessary for a lookup into the functions table");
 			FunctionProps* fnProps = Parser.GetFunctionInfo(*fieldName);
@@ -45,17 +48,27 @@ public class BeefGenerator : ILangGenerator {
 			}
 			buffer.Length--; // remove last comma
 			buffer.AppendF(")");
-			return;
+			break;
 		case ECType.ENUM:
 			// For enum types, use the underlying type until we implement it in the generator
-			buffer.Append("int32");
-			return;
+			buffer.Append(type.structName);
+			break;
+		case ECType.STRUCT:
+			StructDescription* structDecl = Parser.GetStructByName(type.structName);
+			Debug.Assert(structDecl != null, scope $"Struct by the name {type.structName} cannot be found on the parser's definitions, check that it was parsed correctly!");
+			buffer.Append(type.structName);
+			break;
 		default:
 			type.type.ToString(buffer);
 			buffer.ToLower();
-			return;
+			break;
 		}
 		
+		// Apply ptr level
+		Console.WriteLine(scope $"Pointer level: {type.pointerLevel}");
+		for (uint8 i = 0; i < type.pointerLevel; i++) {
+			buffer.Append("*");
+		}
 	}
 	
 	public void EmitConstants(in Dictionary<String, Variant> constantDefines) {
@@ -114,11 +127,9 @@ public class BeefGenerator : ILangGenerator {
 	}
 	
 	public void EmitType(in TypeInfo type, ref String appendBuffer, StringView* fieldName = null) {
-		if (type.kind != ETypeKind.STRUCT) {
-			String outType = scope String(16);
-			ToTypeString(type, outType, fieldName);
-			appendBuffer.AppendF($"{outType}");
-		}
+		String outType = scope String(16);
+		ToTypeString(type, outType, fieldName);
+		appendBuffer.AppendF($"{outType}");
 		if (type.kind == ETypeKind.ARRAY) {
 			// Use the size of the array
 			// TODO: Handle pointers
