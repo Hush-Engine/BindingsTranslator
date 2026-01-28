@@ -29,6 +29,7 @@ enum ECType {
 	// Type equivalents (only here for string comparisons)
 	INT = "int".Fnv1a(),
 	UNSIGNED_LONG_LONG = "unsigned long long".Fnv1a(),
+	LONG = "long".Fnv1a(),
 	SIGNED_CHAR = "signed char".Fnv1a(),
 	SIZE_T = "size_t".Fnv1a(),
 	_BOOL = "_Bool".Fnv1a(),
@@ -148,12 +149,17 @@ class CParser {
 		return this.m_defines;
 	}
 
-	private TypeScopeExtent FindEndIndexOfTypeScope(in StringView region) {
+	private TypeScopeExtent FindEndIndexOfScope(in StringView region) {
 		// Find the closing brace and semicolon
 		TypeScopeExtent result = TypeScopeExtent();
     
         for (int i = 0; i < region.Length; i++) {
             char8 c = region[i];
+			if (!result.hasOpenBrace && c == ';') {
+				// If we find the semicolon first, early return
+				result.endIdx = i + 1;
+				break;
+			}
             if (c == '{') {
                 result.braceDepth++;
                 result.hasOpenBrace = true;
@@ -301,6 +307,7 @@ class CParser {
 
 	private StringView FindContentsInBetween(in StringView baseString, char8 opening, char8 closing, out int startIndex) {
 		startIndex = 0;
+		if (baseString.IsEmpty) return baseString;
 		bool inEnclosing = false;
 		int lastIndex = 0;
 		for (int i = 0; i < baseString.Length; i++) {
@@ -328,8 +335,7 @@ class CParser {
 			return sizeof(int8);
 		case ECType.INT16:
 			return sizeof(int16);
-		case ECType.INT:
-		case ECType.INT32:
+		case ECType.INT, ECType.INT32, ECType.LONG: // Long is 32 bits on MSVC
 			return sizeof(int32);
 		case ECType.INT64:
 			return sizeof(int64);
@@ -369,29 +375,45 @@ class CParser {
 	private bool IsTypeOrStruct(in StringView str) {
 		ECType hash = (ECType)str.Fnv1a();
 		switch (hash) {
-		case ECType.VOID:
-		case ECType.INT8, ECType.SIGNED_CHAR:
-		case ECType.INT16:
-		case ECType.INT32:
-		case ECType.INT64:
-		case ECType.CHAR:
-		case ECType.UINT8:
-		case ECType.UINT16:
-		case ECType.UINT32:
-		case ECType.UNSIGNED_LONG_LONG:
-		case ECType.UINT64:
-		case ECType.FLOAT32:
-		case ECType.FLOAT64:
-		case ECType.BOOL8:
-		case ECType._BOOL:
-		case ECType.INT:
+		case ECType.VOID,
+		ECType.INT8, ECType.SIGNED_CHAR,
+		ECType.INT16,
+		ECType.INT32,
+		ECType.INT64,
+		ECType.CHAR,
+		ECType.UINT8,
+		ECType.UINT16,
+		ECType.UINT32,
+		ECType.UNSIGNED_LONG_LONG,
+		ECType.UINT64,
+		ECType.FLOAT32,
+		ECType.FLOAT64,
+		ECType.BOOL8,
+		ECType._BOOL,
+		ECType.INT,
+		ECType.LONG,
+		ECType.SIZE_T:
 			return true;
 		default:
 			return this.m_registeredStructsByName.ContainsKey(scope String(str)) ||
 				this.m_registeredEnumsByName.ContainsKey(scope String(str)) ||
 				this.m_primitiveTypedefs.ContainsKey(scope String(str));
 		}
-		return false;
+	}
+
+	// Finds the index of the last token before the given delimitter, if either the delimitter or the token do not exist it returns -1
+	private int FindLastBeforeDelimitter(StringView str, char8 token, char8 delimitter) {
+		bool hasFoundDelimitter = false;
+		for (int i = str.Length; i >= 0; i--) {
+			if (!hasFoundDelimitter && str[i] == delimitter) {
+				hasFoundDelimitter = true;
+				continue;
+			}
+			if (hasFoundDelimitter && str[i] == token) {
+				return i;
+			}
+		}
+		return -1;
 	}
 
 	// Collects parse regions from a header file
@@ -428,27 +450,25 @@ class CParser {
 	        // Check for typedef struct (must come before plain typedef check)
 	        if (remaining.StartsWith("typedef struct")) {
 	            // Find the closing brace and semicolon
-	            TypeScopeExtent scopeDesc = this.FindEndIndexOfTypeScope(remaining);
+	            TypeScopeExtent scopeDesc = this.FindEndIndexOfScope(remaining);
 				int endIdx = scopeDesc.endIdx;
             
 				if (endIdx == 0) {
-		            if (!scopeDesc.hasOpenBrace) {
-						// It could be a handle, check whether or not we have a semicolon, and respond accordingly
-						// Go to the next semicolon
-						
-		            }
 	                Console.WriteLine("Malformed struct or handle: no closing brace/semicolon found");
 	                return EError.FORMAT_ERROR;
 				}
             
-	            ParseRegion region = .() { type = .Struct, content = remaining.Substring(0, endIdx) };
-	            outRegions.Add(region);
+				// Only add a region if it is not a handle (has open brace)
+	            if (scopeDesc.hasOpenBrace) {
+		            ParseRegion region = .() { type = .Struct, content = remaining.Substring(0, endIdx) };
+		            outRegions.Add(region);
+	            }
 	            currentPos += (uint32)endIdx;
 	            continue;
 	        }
 
 			if (remaining.StartsWith("typedef enum")) {
-				TypeScopeExtent scopeDesc = this.FindEndIndexOfTypeScope(remaining);
+				TypeScopeExtent scopeDesc = this.FindEndIndexOfScope(remaining);
 				int endIdx = scopeDesc.endIdx;
 
 				if (endIdx == 0) {
@@ -543,10 +563,18 @@ class CParser {
 			// There could or could not be a name for the argument here
 			// A name would be the trailing non whitespace
 			TypeInfo typeInfo = TypeInfo();
+
+			// The argument itself could contain enum bc that's how the header generates it, we need to strip that first
+			const StringView ENUM_IDENTIFIER = "enum";
+			int enumIdx = rawArg.IndexOf(ENUM_IDENTIFIER);
+			if (enumIdx != -1) {
+				rawArg = rawArg.Substring(enumIdx + ENUM_IDENTIFIER.Length);
+			}
+
 			int nameLength = rawArg.Length;
 			int nameStartIdx = -1;
 			for (int i = rawArg.Length - 1; i >= 0; i--) {
-				if (!rawArg[i].IsLetterOrDigit) break;
+				if (!IsValidIdentifierChar(rawArg[i])) break;
 				nameStartIdx = i;
 			}
 
@@ -631,8 +659,7 @@ class CParser {
 			typeInfo.size = sizeof(int16);
 			typeInfo.align = alignof(int16);
 			break;
-		case ECType.INT: // Following MSVC and GCC standards on Windows, unspecified INT will most likely be 32-bits
-			// I could not get it to fallthrough here once, you're welcome to try again later tho
+		case ECType.INT, ECType.LONG: // Following MSVC and GCC standards on Windows, unspecified INT will most likely be 32-bits
 			typeInfo.type = ECType.INT32;
 			typeInfo.size = sizeof(int32);
 			typeInfo.align = alignof(int32);
@@ -1011,6 +1038,11 @@ class CParser {
 		int startIndex;
 		StringView argListRaw = this.FindContentsInBetween(functionRegion, '(', ')', out startIndex);
 		functionProps = FunctionProps();
+
+		if (argListRaw.IsEmpty) {
+			return EError.FORMAT_ERROR;
+		}
+
 		EError err = TryParseRawArgumentList(ref functionProps, argListRaw);
 
 		if (err != EError.OK) {
@@ -1018,7 +1050,6 @@ class CParser {
 		}
 
 		StringView nameAndRetType = functionRegion.Substring(0, startIndex);
-		Console.WriteLine($"Name and ret: {nameAndRetType}");
 
 		// Maybe the last idx could also be the pointer star, but, who knows :p
 		int lastSpace = nameAndRetType.LastIndexOf(' ');

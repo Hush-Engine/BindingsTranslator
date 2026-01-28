@@ -65,7 +65,6 @@ public class BeefGenerator : ILangGenerator {
 		}
 		
 		// Apply ptr level
-		Console.WriteLine(scope $"Pointer level: {type.pointerLevel}");
 		for (uint8 i = 0; i < type.pointerLevel; i++) {
 			buffer.Append("*");
 		}

@@ -12,9 +12,6 @@ class Program {
 			Console.WriteLine($"Error {err}!");
 		}
 
-		Console.WriteLine($"Struct #{parser.GetStructCount()}: {desc.name}");
-		
-
 		generator.EmitStruct(desc);
 	}
 
@@ -24,11 +21,6 @@ class Program {
 		if (err != EError.OK) {
 			Console.WriteLine($"Error {err}!");
 		}
-
-		Console.WriteLine($"Enum: {desc.name}");
-		// for (uint32 i = 0; i < desc.valueCount; i++) {
-		// 	Console.WriteLine($"  Value: {desc.valueNames[i]} = {desc.valueInts[i]}");
-		// }
 
 		generator.EmitEnum(desc);
 	}
@@ -80,7 +72,7 @@ class Program {
 			if (region.type == EScopeType.Function) {
 				FunctionProps functionProps;
 				err = parser.TryParseFunction(out functionProps, region.content);
-				Console.WriteLine($"Function: {region.content}");
+				// Console.WriteLine($"Function: {region.content}");
 				continue;
 			}
 			if (region.type == EScopeType.Define) {
