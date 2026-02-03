@@ -72,6 +72,10 @@ class Program {
 			if (region.type == EScopeType.Function) {
 				FunctionProps functionProps;
 				err = parser.TryParseFunction(out functionProps, region.content);
+				if (err == EError.OK) {
+					generator.EmitMethod(functionProps);
+				}
+				
 				// Console.WriteLine($"Function: {region.content}");
 				continue;
 			}

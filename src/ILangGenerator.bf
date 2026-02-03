@@ -15,7 +15,7 @@ public interface ILangGenerator {
 
 	public void EmitEnum(in EnumDescription enumDesc);
 
-	public void EmitMethod(in StringView module, in FunctionProps funcDesc);
+	public void EmitMethod(in FunctionProps funcDesc);
 
 	
 }
