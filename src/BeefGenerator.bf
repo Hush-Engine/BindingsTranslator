@@ -87,12 +87,9 @@ public class BeefGenerator : ILangGenerator {
 			StructDescription* structDecl = Parser.GetStructByName(type.structName);
 			Debug.Assert(structDecl != null, scope $"Struct by the name {type.structName} cannot be found on the parser's definitions, check that it was parsed correctly!");
 			// Scopify
-			const StringView HUSH_DECL = "Hush__";
 			StringView nameView = StringView(&structDecl.name[0]);
-			int hushPrefixIdx = nameView.IndexOf(HUSH_DECL);
-			if (hushPrefixIdx != -1) {
-				nameView = nameView.Substring(hushPrefixIdx + HUSH_DECL.Length);
-			}
+			Scopes typeScoped = LangUtils.ExtractScopes(nameView);
+			nameView = .(&typeScoped.scopes[typeScoped.nameIdx][0]);
 			buffer.Append(nameView);
 			break;
 		default:
@@ -174,7 +171,7 @@ public class BeefGenerator : ILangGenerator {
 		}
 	}
 
-		private FileCheckpoint GetCheckpointForStruct(in Scopes classScoped, StringView className, out FileCheckpoint* outCheckpointRef) {
+	private FileCheckpoint GetCheckpointForStruct(in Scopes classScoped, StringView className, out FileCheckpoint* outCheckpointRef) {
 		let intendedFilePath = scope $"generated/{className}.bf";
 		outCheckpointRef = null;
 
@@ -194,6 +191,13 @@ public class BeefGenerator : ILangGenerator {
 		}
 		// We get the actual file this sub struct is pointing to
 		return *outCheckpointRef;
+	}
+
+	public void TabulateBuffer(String str, uint8 count) {
+		Debug.Assert(str.AllocSize >= count, "Provided string buffer is not enough to store the tab count");
+		for (uint8 i = 0; i < count; i++) {
+			str.Append('\t');
+		}
 	}
 	
 	public void ILangGenerator.EmitStruct(in StructDescription structDesc)
@@ -223,24 +227,29 @@ public class BeefGenerator : ILangGenerator {
 		if (checkpointToWriteBegin.seekOffset <= 0) {
 			output.Append("namespace Hush;\n");
 		}
-		output.AppendF($"{DEFAULT_DECL}\n{containerType} {nameView} \{\n");
+		
+		String tabulation = scope String(4);
+		uint8 tabCount = uint8(classScoped.scopesCount <= 0 ? 1 : classScoped.scopesCount - 1);
+		TabulateBuffer(tabulation, tabCount); // tabs are N of scopes - 1 (namespace)
+		
+		output.AppendF($"\n{tabulation}{DEFAULT_DECL}\n{tabulation}{containerType} {nameView} \{\n");
 
 		int64 seekOffset = checkpointToWriteBegin.seekOffset;
 
 		for (uint32 i = 0; i < structDesc.fieldCount; i++) {
 			Argument* field = &structDesc.fields[i];
 			// First type, then name
-			output.Append("\tpublic "); // All fields in the export should be public
+			output.AppendF($"{tabulation}\tpublic "); // All fields in the export should be public
 			this.EmitType(field.typeInfo, ref output, &StringView(&field.name[0]));
 			output.AppendF($" {field.name};\n"); // Now the name and the semicolon
 
 			// We set the last file checkpoint here so that it stays in scope and we can add function definitions here
-			seekOffset = (int64)output.Length;
 		}
 		String key = new String(nameView);
 		Console.Write(scope $"{containerType} for type: {key}... "); // FIXME: Removing this seems to trigger an access violation (??!!?!?
+		seekOffset += (int64)output.Length;
 		this.m_checkpointsByStructName[key] = FileCheckpoint(filePath, seekOffset);
-		output.Append("}");
+		output.AppendF($"{tabulation}\}\n");
 
 		if (!Directory.Exists("generated")) {
 			Directory.CreateDirectory("generated");
@@ -332,11 +341,18 @@ public class BeefGenerator : ILangGenerator {
 		const int MAX_FN_DECL_LENGTH = MemUtils.KiB(1);
 		String output = scope String(MAX_FN_DECL_LENGTH);
 		String fnImplementation = scope String(512);
+		
 		String typeBuffer = scope String(64);
 		this.ToTypeString(funcDesc.returnType, typeBuffer);
-		output.AppendF($"\n\t[LinkName(\"{fnName}\")]\n\tpublic static extern {typeBuffer} {fnName}(");
+		
+		String tabulation = scope String(4);
+		uint8 tabCount = uint8(scopes.scopesCount <= 0 ? 1 : scopes.scopesCount - 1);
+		TabulateBuffer(tabulation, tabCount); // tabs are N of scopes - 1 (namespace)
+		
+		output.AppendF($"\n{tabulation}[LinkName(\"{fnName}\")]\n{tabulation}public static extern {typeBuffer} {fnName}(");
+
 		StringView memberFnName = StringView(&scopes.scopes[scopes.nameIdx][0]);
-		fnImplementation.AppendF($"\tpublic {typeBuffer} {memberFnName}(");
+		fnImplementation.AppendF($"{tabulation}public {typeBuffer} {memberFnName}(");
 		// Then append the method args
 		const int COMMA_AND_SPACE_OFFSET = 2;
 		int argCount = 0;
@@ -361,9 +377,8 @@ public class BeefGenerator : ILangGenerator {
 		}
 
 		output.Append(");\n");
-		fnImplementation.Append(") {\n\t");
+		fnImplementation.AppendF($") \{\n{tabulation}\t");
 
-		fnImplementation.Append('\t');
 		// Now we add the implementation of this function, which should be a member function calling the linked fn
 		if (funcDesc.returnType.type != ECType.VOID || funcDesc.returnType.pointerLevel > 0) {
 			fnImplementation.Append("return ");
@@ -386,12 +401,11 @@ public class BeefGenerator : ILangGenerator {
 		}
 
 		fnImplementation.Length -= COMMA_AND_SPACE_OFFSET;
-		fnImplementation.Append(");\n\t}");
+		fnImplementation.AppendF($");\n{tabulation}\}");
 
 		output.AppendF($"{fnImplementation}\n");
 
 		// Now, this output should be sent to the last book-kept offset on the scope
-		// The name of the struct this fn belongs to is the last scope in the array
 		let scopeWithName = scopes.scopes[scopes.scopesCount - 1];
 		let structStr = scope String(&scopeWithName[0]);
 		String* matchKey = null;
