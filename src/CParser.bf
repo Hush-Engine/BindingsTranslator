@@ -873,6 +873,7 @@ class CParser {
 			if (index != 0) {
 				EError err = TryParseStructField(ref structDesc, part);
 				if (err != EError.OK) return err;
+				structDesc.size += structDesc.fields[structDesc.fieldCount].typeInfo.size;
 				structDesc.fieldCount++;
 				index++;
 				continue;

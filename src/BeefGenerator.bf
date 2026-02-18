@@ -20,6 +20,10 @@ public struct FileCheckpoint {
 		filePath.CopyTo(this.fileName);
 		this.seekOffset = offset;
 	}
+
+	public StringView GetFileName() {
+		return .(&this.fileName[0]);
+	}
 }
 
 public class BeefGenerator : ILangGenerator {
@@ -70,6 +74,9 @@ public class BeefGenerator : ILangGenerator {
 				buffer.AppendF($"{retTypeBuff} {fnProps.args[i].name},");
 			}
 			buffer.Length--; // remove last comma
+			if (buffer[buffer.Length - 1].IsWhiteSpace) {
+				buffer.Length--;
+			}
 			buffer.AppendF(")");
 			break;
 		case ECType.ENUM:
@@ -167,36 +174,58 @@ public class BeefGenerator : ILangGenerator {
 		}
 	}
 
+		private FileCheckpoint GetCheckpointForStruct(in Scopes classScoped, StringView className, out FileCheckpoint* outCheckpointRef) {
+		let intendedFilePath = scope $"generated/{className}.bf";
+		outCheckpointRef = null;
+
+		// We want to identify subclasses here too (use 1 bc of the namespace)
+		if (classScoped.scopesCount <= 1) {
+			// Init at a 0 offset
+			return FileCheckpoint(intendedFilePath, 0);
+		}
+		// We only need to identify the last scope to be a struct in the file checkpoint dict
+		int64 lastScopeIdx = classScoped.scopesCount - 1;
+		StringView structName = .(&classScoped.scopes[lastScopeIdx][0]);
+		// Find the checkcpoint to write to
+		String* outKey = null;
+		bool contains = this.m_checkpointsByStructName.TryGetRef(scope String(structName), out outKey, out outCheckpointRef);
+		if (!contains) {
+			return FileCheckpoint(intendedFilePath, 0);
+		}
+		// We get the actual file this sub struct is pointing to
+		return *outCheckpointRef;
+	}
+	
 	public void ILangGenerator.EmitStruct(in StructDescription structDesc)
 	{
 		Debug.Assert(Parser != null, "Null parser when trying to parse a struct, please set the Parser property of this implementation");
 		// Given our source directory, we need to simply generate a Beef compatible struct string and put it into a file		
 
-		// First, the name of the file needs to resemble the name of the struct
-		const StringView HUSH_PREFIX = "Hush__"; // Some structs under the Hush namespace will have this
-
 		StringView nameView = StringView(&structDesc.name[0]);
-		int prefixIndex = nameView.IndexOf(HUSH_PREFIX);
+		Scopes classScoped = LangUtils.ExtractScopes(nameView);
+		nameView = StringView(&classScoped.scopes[classScoped.nameIdx][0]);
+		// This is optional and will only be filled in by the function in case the checkpoint exists in the dictionary
+		FileCheckpoint* beginCheckpointRef = null;
+		FileCheckpoint checkpointToWriteBegin = GetCheckpointForStruct(classScoped, nameView, out beginCheckpointRef);
+		// Make sure it is not null lol
+		beginCheckpointRef = beginCheckpointRef == null ? &checkpointToWriteBegin : beginCheckpointRef;
 
-		if (prefixIndex != -1) {
-			nameView = nameView.Substring(prefixIndex + HUSH_PREFIX.Length);
-		}
-
-		let filePath = scope $"generated/{nameView}.bf";
+		StringView filePath = checkpointToWriteBegin.GetFileName();
 		const int MAX_STRUCT_GEN_LENGTH = 1024 * 3; // Just a few kB no struct should be bigger than this
 		String output = scope String(MAX_STRUCT_GEN_LENGTH);
-		const StringView DEFAULT_DECL =
-			"""
-			namespace Hush;
+		const StringView DEFAULT_DECL = "[CRepr]";
 
-			using System;
-			using System.Collections;
+		// Define if we want to make a struct or a class based on the size of it (24 bytes)
+		const uint64 CLASS_SIZE_THRESHOLD = 24;
+		String containerType = scope String(6);
+		containerType += structDesc.size > CLASS_SIZE_THRESHOLD ? "class" : "struct";
 
-			[CRepr]
-			""";
-		output.AppendF($"{DEFAULT_DECL}\nstruct {nameView} \{\n");
+		if (checkpointToWriteBegin.seekOffset <= 0) {
+			output.Append("namespace Hush;\n");
+		}
+		output.AppendF($"{DEFAULT_DECL}\n{containerType} {nameView} \{\n");
 
-		int64 seekOffset = 0;
+		int64 seekOffset = checkpointToWriteBegin.seekOffset;
 
 		for (uint32 i = 0; i < structDesc.fieldCount; i++) {
 			Argument* field = &structDesc.fields[i];
@@ -209,15 +238,18 @@ public class BeefGenerator : ILangGenerator {
 			seekOffset = (int64)output.Length;
 		}
 		String key = new String(nameView);
-		Console.Write(scope $"Struct for type: {key}... "); // FIXME: Removing this seems to trigger an access violation (??!!?!?
+		Console.Write(scope $"{containerType} for type: {key}... "); // FIXME: Removing this seems to trigger an access violation (??!!?!?
 		this.m_checkpointsByStructName[key] = FileCheckpoint(filePath, seekOffset);
 		output.Append("}");
+
 		if (!Directory.Exists("generated")) {
 			Directory.CreateDirectory("generated");
 		}
-		let writeRes = File.WriteAllText(filePath, output);
+
+		uint8[] tempBuffer = scope uint8[MemUtils.KiB(3)];
+		EError writeErr = FileUtils.WriteAt(beginCheckpointRef, output, tempBuffer);
 		
-		if (writeRes case .Err) {
+		if (writeErr != EError.OK) {
 			Console.WriteLine($"Could not generate file {filePath}!");
 			return;
 		}
@@ -297,27 +329,70 @@ public class BeefGenerator : ILangGenerator {
 		// Link fn example from the SDL2 bindings
 		// [LinkName("SDL_Init")]
 		// public static extern int32 Init(InitFlag flags);
-		const int MAX_FN_DECL_LENGTH = 512;
+		const int MAX_FN_DECL_LENGTH = MemUtils.KiB(1);
 		String output = scope String(MAX_FN_DECL_LENGTH);
+		String fnImplementation = scope String(512);
 		String typeBuffer = scope String(64);
 		this.ToTypeString(funcDesc.returnType, typeBuffer);
-		output.AppendF($"\t[LinkName(\"{fnName}\")]\n\tpublic static extern {typeBuffer} {fnName}(");
+		output.AppendF($"\n\t[LinkName(\"{fnName}\")]\n\tpublic static extern {typeBuffer} {fnName}(");
+		StringView memberFnName = StringView(&scopes.scopes[scopes.nameIdx][0]);
+		fnImplementation.AppendF($"\tpublic {typeBuffer} {memberFnName}(");
 		// Then append the method args
 		const int COMMA_AND_SPACE_OFFSET = 2;
+		int argCount = 0;
 		for (int i = 0; i < funcDesc.args.Count; i++) {
 			if (funcDesc.args[i].typeInfo.type == ECType.UNDEFINED) {
 				break;
 			}
 			typeBuffer.Clear();
 			this.ToTypeString(funcDesc.args[i].typeInfo, typeBuffer);
-			output.AppendF($"{typeBuffer} {funcDesc.args[i].name}, ");
+			StringView argName = StringView(&funcDesc.args[i].name[0]);
+			output.AppendF($"{typeBuffer} {argName}, ");
+			if (argName == "self") {
+				// Skip the self argument for the member function
+				continue;
+			}
+			argCount++;
+			fnImplementation.AppendF($"{typeBuffer} {argName}, ");
 		}
 		output.Length -= COMMA_AND_SPACE_OFFSET;
+		if (argCount > 0) {
+			fnImplementation.Length -= COMMA_AND_SPACE_OFFSET;
+		}
+
 		output.Append(");\n");
+		fnImplementation.Append(") {\n\t");
+
+		fnImplementation.Append('\t');
+		// Now we add the implementation of this function, which should be a member function calling the linked fn
+		if (funcDesc.returnType.type != ECType.VOID || funcDesc.returnType.pointerLevel > 0) {
+			fnImplementation.Append("return ");
+		}
+		fnImplementation.AppendF($"{fnName}(");
+		for (int i = 0; i < funcDesc.args.Count; i++) {
+			if (funcDesc.args[i].typeInfo.type == ECType.UNDEFINED) {
+				break;
+			}
+			String nameBuffer = scope String(16);
+			StringView argName = StringView(&funcDesc.args[i].name[0]);
+			if (argName == "self") {
+				argName = "&this";
+			}
+			if (argName.IsEmpty) {
+				nameBuffer = scope $"arg{i}";
+				argName = nameBuffer;
+			}
+			fnImplementation.AppendF($"{argName}, ");
+		}
+
+		fnImplementation.Length -= COMMA_AND_SPACE_OFFSET;
+		fnImplementation.Append(");\n\t}");
+
+		output.AppendF($"{fnImplementation}\n");
 
 		// Now, this output should be sent to the last book-kept offset on the scope
-		const int SCOPE_WITH_NAME_IDX = 1;
-		let scopeWithName = scopes.scopes[SCOPE_WITH_NAME_IDX];
+		// The name of the struct this fn belongs to is the last scope in the array
+		let scopeWithName = scopes.scopes[scopes.scopesCount - 1];
 		let structStr = scope String(&scopeWithName[0]);
 		String* matchKey = null;
 		FileCheckpoint* value = null;
@@ -348,10 +423,11 @@ public class BeefGenerator : ILangGenerator {
 
 		stream.Write((uint8)'\n');
 		uint8[MAX_FN_DECL_LENGTH] dest = .();
-		System.Text.UTF8Encoding.UTF8.Encode(output, dest);
-		for (int i = 0; i < dest.Count && dest[i] != '\0'; i++) {
+		int count = System.Text.UTF8Encoding.UTF8.Encode(output, dest);
+		for (int i = 0; i < count; i++) {
 			stream.Write(dest[i]);
 		}
+
 		value.seekOffset = stream.Position;
 		for (int i = 0; i < contentsAfter.Count && contentsAfter[i] != '\0'; i++) {
 			stream.Write(contentsAfter[i]);
