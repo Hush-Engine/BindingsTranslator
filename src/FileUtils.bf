@@ -38,7 +38,7 @@ class FileUtils {
 			stream.Write(dest[i]);
 		}
 
-		checkpoint.seekOffset = stream.Position;
+		// checkpoint.seekOffset = stream.Position;
 
 
 		for (int i = 0; i < tempBuffer.Length && tempBuffer[i] != '\0'; i++) {

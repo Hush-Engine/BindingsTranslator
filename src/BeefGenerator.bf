@@ -27,6 +27,9 @@ public struct FileCheckpoint {
 }
 
 public class BeefGenerator : ILangGenerator {
+	const uint64 CLASS_SIZE_THRESHOLD = 24;
+
+	const StringView GEN_SRC_FOLDER = "generated/src";
 
 	public CParser Parser { get; set; }
 
@@ -39,6 +42,12 @@ public class BeefGenerator : ILangGenerator {
 		}
 	}
 
+	private void EnsureProjectDirectory() {
+		if (!Directory.Exists(GEN_SRC_FOLDER)) {
+			Directory.CreateDirectory(GEN_SRC_FOLDER);
+		}
+	}
+	
 	private void ToTypeString(in TypeInfo type, String buffer, StringView* fieldName = null) {
 		switch(type.type) {
 		case ECType.UNDEFINED:
@@ -89,8 +98,7 @@ public class BeefGenerator : ILangGenerator {
 			// Scopify
 			StringView nameView = StringView(&structDecl.name[0]);
 			Scopes typeScoped = LangUtils.ExtractScopes(nameView);
-			nameView = .(&typeScoped.scopes[typeScoped.nameIdx][0]);
-			buffer.Append(nameView);
+			ToFullyScopedName(buffer, typeScoped);
 			break;
 		default:
 			type.type.ToString(buffer);
@@ -105,9 +113,8 @@ public class BeefGenerator : ILangGenerator {
 	}
 	
 	public void EmitConstants(in Dictionary<String, Variant> constantDefines) {
-		if (!Directory.Exists("generated")) {
-			Directory.CreateDirectory("generated");
-		}
+		EnsureProjectDirectory();
+		
 		const uint64 guessSize = 1024 * 20; // 20kB for guess allocation
 		String output = scope String(guessSize);
 		// Separate the __ into namespaces and classes, the first one should always be Hush__
@@ -156,7 +163,7 @@ public class BeefGenerator : ILangGenerator {
 			}
 			output.Append("}\n\n");
 		}
-		File.WriteAllText("generated/Constants.bf", output);
+		File.WriteAllText("{GEN_SRC_FOLDER}/Constants.bf", output);
 	}
 	
 	public void EmitType(in TypeInfo type, ref String appendBuffer, StringView* fieldName = null) {
@@ -172,7 +179,7 @@ public class BeefGenerator : ILangGenerator {
 	}
 
 	private FileCheckpoint GetCheckpointForStruct(in Scopes classScoped, StringView className, out FileCheckpoint* outCheckpointRef) {
-		let intendedFilePath = scope $"generated/{className}.bf";
+		let intendedFilePath = scope $"{GEN_SRC_FOLDER}/{className}.bf";
 		outCheckpointRef = null;
 
 		// We want to identify subclasses here too (use 1 bc of the namespace)
@@ -220,19 +227,18 @@ public class BeefGenerator : ILangGenerator {
 		const StringView DEFAULT_DECL = "[CRepr]";
 
 		// Define if we want to make a struct or a class based on the size of it (24 bytes)
-		const uint64 CLASS_SIZE_THRESHOLD = 24;
 		String containerType = scope String(6);
 		containerType += structDesc.size > CLASS_SIZE_THRESHOLD ? "class" : "struct";
 
 		if (checkpointToWriteBegin.seekOffset <= 0) {
-			output.Append("namespace Hush;\n");
+			output.Append("namespace Hush;\nusing System;\n");
 		}
 		
 		String tabulation = scope String(4);
 		uint8 tabCount = uint8(classScoped.scopesCount <= 0 ? 1 : classScoped.scopesCount - 1);
 		TabulateBuffer(tabulation, tabCount); // tabs are N of scopes - 1 (namespace)
 		
-		output.AppendF($"\n{tabulation}{DEFAULT_DECL}\n{tabulation}{containerType} {nameView} \{\n");
+		output.AppendF($"\n{tabulation}{DEFAULT_DECL}\n{tabulation}public {containerType} {nameView} \{\n");
 
 		int64 seekOffset = checkpointToWriteBegin.seekOffset;
 
@@ -251,9 +257,7 @@ public class BeefGenerator : ILangGenerator {
 		this.m_checkpointsByStructName[key] = FileCheckpoint(filePath, seekOffset);
 		output.AppendF($"{tabulation}\}\n");
 
-		if (!Directory.Exists("generated")) {
-			Directory.CreateDirectory("generated");
-		}
+		EnsureProjectDirectory();
 
 		uint8[] tempBuffer = scope uint8[MemUtils.KiB(3)];
 		EError writeErr = FileUtils.WriteAt(beginCheckpointRef, output, tempBuffer);
@@ -306,10 +310,9 @@ public class BeefGenerator : ILangGenerator {
 		}
 		output.Append("}");
 
-		if (!Directory.Exists("generated")) {
-			Directory.CreateDirectory("generated");
-		}
-		let filePath = scope $"generated/{nameView}.bf";
+		EnsureProjectDirectory();
+		
+		let filePath = scope $"{GEN_SRC_FOLDER}/{nameView}.bf";
 		let writeRes = File.WriteAllText(filePath, output);
 		
 		if (writeRes case .Err) {
@@ -318,6 +321,14 @@ public class BeefGenerator : ILangGenerator {
 		}
 		
 		Console.WriteLine($"Written to file: {filePath}");
+	}
+
+	public void ToFullyScopedName(String buffer, in Scopes typeScopes) {
+		const int64 SKIP_NAMESPACE_IDX = 1;
+		for (int64 i = SKIP_NAMESPACE_IDX; i < typeScopes.scopesCount; i++) {
+			buffer.AppendF($"{typeScopes.scopes[i]}.");
+		}
+		buffer.Append(typeScopes.scopes[typeScopes.nameIdx]);
 	}
 
 	public void EmitMethod(in FunctionProps funcDesc) {
@@ -385,11 +396,12 @@ public class BeefGenerator : ILangGenerator {
 		}
 		fnImplementation.AppendF($"{fnName}(");
 		for (int i = 0; i < funcDesc.args.Count; i++) {
-			if (funcDesc.args[i].typeInfo.type == ECType.UNDEFINED) {
+			Argument currArg = funcDesc.args[i];
+			if (currArg.typeInfo.type == ECType.UNDEFINED) {
 				break;
 			}
 			String nameBuffer = scope String(16);
-			StringView argName = StringView(&funcDesc.args[i].name[0]);
+			StringView argName = StringView(&currArg.name[0]);
 			if (argName == "self") {
 				argName = "&this";
 			}
@@ -414,37 +426,8 @@ public class BeefGenerator : ILangGenerator {
 
 		if (!matched) return;
 
-		FileStream stream = scope .();
-		defer stream.Close();
-
-		let res = stream.Open(StringView(&value.fileName[0]));
-		if (res case .Err(let err)) {
-			Console.WriteLine($"Failed to open file, error: {err}");
-			return;
-		}
-		let streamSeekRes = stream.Seek(value.seekOffset);
-
-		if (streamSeekRes case .Err(let err)) {
-			Console.WriteLine($"Failed to seek file, error: {err}");
-			return;
-		}
-
-		// Memory buffer for restoring the contents (should be quite small since we are at the end of the class scope when we hit this
-		char8[MAX_FN_DECL_LENGTH] contentsAfter = .();
-		int size = (stream.TryRead(.((uint8*)&contentsAfter, sizeof(char8[MAX_FN_DECL_LENGTH]))));
-		stream.Seek(stream.Position - size, .Absolute);
-
-
-		stream.Write((uint8)'\n');
-		uint8[MAX_FN_DECL_LENGTH] dest = .();
-		int count = System.Text.UTF8Encoding.UTF8.Encode(output, dest);
-		for (int i = 0; i < count; i++) {
-			stream.Write(dest[i]);
-		}
-
-		value.seekOffset = stream.Position;
-		for (int i = 0; i < contentsAfter.Count && contentsAfter[i] != '\0'; i++) {
-			stream.Write(contentsAfter[i]);
-		}
+		// Use the largest expected file size
+		uint8[] contentsAfter = scope uint8[MemUtils.KiB(5)];
+		FileUtils.WriteAt(value, output, contentsAfter);
 	}
 }
