@@ -17,6 +17,10 @@ public interface ILangGenerator {
 
 	public void EmitMethod(in FunctionProps funcDesc);
 
+	public void ToTypeString(in TypeInfo type, String buffer, StringView* fieldName = null);
+
+	public void FunctionPtrToStr(in FunctionProps fnProps, String buffer);
+
 	
 }
 

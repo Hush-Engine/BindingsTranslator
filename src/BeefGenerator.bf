@@ -9,6 +9,11 @@ public struct ConstantDecl {
 	public char8[32] className;
 	public StringView name;
 	public Variant value;
+
+	public StringView GetClassName() {
+		return .(&this.className[0]);
+	}
+	
 }
 
 public struct FileCheckpoint {
@@ -48,7 +53,7 @@ public class BeefGenerator : ILangGenerator {
 		}
 	}
 	
-	private void ToTypeString(in TypeInfo type, String buffer, StringView* fieldName = null) {
+	public void ToTypeString(in TypeInfo type, String buffer, StringView* fieldName = null) {
 		switch(type.type) {
 		case ECType.UNDEFINED:
 			Debug.Assert(false, "Undefined type cannot be parsed! Review parsing for this struct field");
@@ -72,21 +77,8 @@ public class BeefGenerator : ILangGenerator {
 			Debug.Assert(fieldName != null, "When parsing a function pointer a field name is necessary for a lookup into the functions table");
 			FunctionProps* fnProps = Parser.GetFunctionInfo(*fieldName);
 			Runtime.Assert(fnProps != null, scope $"Could not find a function pointer with the name {*fieldName}");
-			function void(int32, uint64) arg;
-			let retTypeBuff = scope String(16);
 			// Wooo, recursion
-			ToTypeString(fnProps.returnType, retTypeBuff);
-			buffer.AppendF($"function {retTypeBuff}(");
-			for (int i = 0; i < fnProps.args.Count && fnProps.args[i].typeInfo.type != ECType.UNDEFINED; i++) {
-				retTypeBuff.Clear();
-				ToTypeString(fnProps.args[i].typeInfo, retTypeBuff);
-				buffer.AppendF($"{retTypeBuff} {fnProps.args[i].name},");
-			}
-			buffer.Length--; // remove last comma
-			if (buffer[buffer.Length - 1].IsWhiteSpace) {
-				buffer.Length--;
-			}
-			buffer.AppendF(")");
+			FunctionPtrToStr(*fnProps, buffer);
 			break;
 		case ECType.ENUM:
 			// For enum types, use the underlying type until we implement it in the generator
@@ -110,6 +102,22 @@ public class BeefGenerator : ILangGenerator {
 		for (uint8 i = 0; i < type.pointerLevel; i++) {
 			buffer.Append("*");
 		}
+	}
+	
+	public void FunctionPtrToStr(in FunctionProps fnProps, String buffer) {
+		let retTypeBuff = scope String(16);
+		ToTypeString(fnProps.returnType, retTypeBuff);
+		buffer.AppendF($"function {retTypeBuff}(");
+		for (int i = 0; i < fnProps.args.Count && fnProps.args[i].typeInfo.type != ECType.UNDEFINED; i++) {
+			retTypeBuff.Clear();
+			ToTypeString(fnProps.args[i].typeInfo, retTypeBuff);
+			buffer.AppendF($"{retTypeBuff} {fnProps.args[i].name},");
+		}
+		buffer.Length--; // remove last comma
+		if (buffer[buffer.Length - 1].IsWhiteSpace) {
+			buffer.Length--;
+		}
+		buffer.AppendF(")");
 	}
 	
 	public void EmitConstants(in Dictionary<String, Variant> constantDefines) {
@@ -137,7 +145,7 @@ public class BeefGenerator : ILangGenerator {
 			}
 			toAdd.name = constantName;
 			toAdd.value = entry.value;
-			let key = StringView(&toAdd.className[0]);
+			let key = toAdd.GetClassName();
 			if (!scopedConstants.ContainsKey(key)) {
 				let scopeList = new List<ConstantDecl>();
 				defer :: delete scopeList;
@@ -163,7 +171,10 @@ public class BeefGenerator : ILangGenerator {
 			}
 			output.Append("}\n\n");
 		}
-		File.WriteAllText("{GEN_SRC_FOLDER}/Constants.bf", output);
+		let fileWriteRes = File.WriteAllText(scope $"{GEN_SRC_FOLDER}/Constants.bf", output);
+		if (fileWriteRes case .Err(let fileWriteErr)) {
+			Console.WriteLine(scope $"Error generating constants, {fileWriteErr}");
+		} 
 	}
 	
 	public void EmitType(in TypeInfo type, ref String appendBuffer, StringView* fieldName = null) {
@@ -214,7 +225,7 @@ public class BeefGenerator : ILangGenerator {
 
 		StringView nameView = StringView(&structDesc.name[0]);
 		Scopes classScoped = LangUtils.ExtractScopes(nameView);
-		nameView = StringView(&classScoped.scopes[classScoped.nameIdx][0]);
+		nameView = classScoped.GetName();
 		// This is optional and will only be filled in by the function in case the checkpoint exists in the dictionary
 		FileCheckpoint* beginCheckpointRef = null;
 		FileCheckpoint checkpointToWriteBegin = GetCheckpointForStruct(classScoped, nameView, out beginCheckpointRef);
@@ -278,6 +289,9 @@ public class BeefGenerator : ILangGenerator {
 		const StringView HUSH_PREFIX = "Hush__";
 
 		StringView nameView = StringView(&enumDesc.name[0]);
+		
+		Scopes enumScoped = LangUtils.ExtractScopes(nameView);
+		nameView = enumScoped.GetName();
 		int prefixIndex = nameView.IndexOf(HUSH_PREFIX);
 
 		if (prefixIndex != -1) {
@@ -326,9 +340,9 @@ public class BeefGenerator : ILangGenerator {
 	public void ToFullyScopedName(String buffer, in Scopes typeScopes) {
 		const int64 SKIP_NAMESPACE_IDX = 1;
 		for (int64 i = SKIP_NAMESPACE_IDX; i < typeScopes.scopesCount; i++) {
-			buffer.AppendF($"{typeScopes.scopes[i]}.");
+			buffer.AppendF($"{typeScopes.GetScopeAt(i)}.");
 		}
-		buffer.Append(typeScopes.scopes[typeScopes.nameIdx]);
+		buffer.Append(typeScopes.GetName());
 	}
 
 	public void EmitMethod(in FunctionProps funcDesc) {
@@ -362,7 +376,7 @@ public class BeefGenerator : ILangGenerator {
 		
 		output.AppendF($"\n{tabulation}[LinkName(\"{fnName}\")]\n{tabulation}public static extern {typeBuffer} {fnName}(");
 
-		StringView memberFnName = StringView(&scopes.scopes[scopes.nameIdx][0]);
+		StringView memberFnName = scopes.GetName();
 		fnImplementation.AppendF($"{tabulation}public {typeBuffer} {memberFnName}(");
 		// Then append the method args
 		const int COMMA_AND_SPACE_OFFSET = 2;
