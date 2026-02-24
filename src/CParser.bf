@@ -54,6 +54,11 @@ struct StructDescription {
 	public uint32 fieldCount;
 	public uint64 size;
 	public uint64 align;
+
+	public StringView GetName() {
+		return .(&this.name[0]);
+	}
+	
 }
 
 struct EnumDescription {
@@ -67,6 +72,15 @@ struct EnumDescription {
 	public uint32 valueCount;
 	public int64 defaultValue;
 	public ECType underlyingType; // Maps to primitive integer type
+
+	public StringView GetName() {
+		return .(&this.name[0]);
+	}
+
+	public StringView GetValueNameAt(uint32 idx) {
+		return .(&this.valueNames[idx][0]);
+	}
+	
 }
 
 struct TypeInfo {
@@ -83,6 +97,11 @@ struct Argument {
 	const int64 MAX_FIELD_NAME = 128;
 	public char8[MAX_FIELD_NAME] name;
 	public TypeInfo typeInfo;
+
+	public StringView GetName() {
+		return .(&this.name[0]);
+	}
+	
 }
 
 public enum EScopeType {

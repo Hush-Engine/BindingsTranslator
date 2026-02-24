@@ -3,6 +3,17 @@ namespace HushBindingGen;
 using System;
 using System.Diagnostics;
 
+public struct ConstantDecl {
+	public char8[64] className;
+	public char8[64] name;
+	public Variant value;
+
+	public StringView GetClassName() {
+		return .(&this.className[0]);
+	}
+
+}
+
 struct Scopes {
 	const int MAX_SCOPES = 4;
 	public char8[MAX_SCOPES][64] scopes;

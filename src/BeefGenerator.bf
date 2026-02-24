@@ -5,29 +5,18 @@ using System.Diagnostics;
 using System.Collections;
 using System.IO;
 
-public struct ConstantDecl {
-	public char8[32] className;
-	public StringView name;
-	public Variant value;
-
-	public StringView GetClassName() {
-		return .(&this.className[0]);
-	}
-	
-}
-
 public struct FileCheckpoint {
-	public char8[32] fileName;
+	public char8[64] fileName;
 	public int64 seekOffset;
 
 	public this(StringView filePath, int64 offset) {
-		this.fileName = char8[32]();
+		this.fileName = char8[64]();
 		filePath.CopyTo(this.fileName);
 		this.seekOffset = offset;
 	}
 
 	public StringView GetFileName() {
-		return .(&this.fileName[0]);
+		return .(&this.fileName);
 	}
 }
 
@@ -127,38 +116,49 @@ public class BeefGenerator : ILangGenerator {
 		String output = scope String(guessSize);
 		// Separate the __ into namespaces and classes, the first one should always be Hush__
 
+		// This isn't necessarily a dict, it's just a pair list
 		let scopedConstants = scope Dictionary<StringView, List<ConstantDecl>>();
 
 		for (let entry in constantDefines) {
 			ConstantDecl toAdd = ConstantDecl();
-			const StringView HUSH_IDENTIFIER = "Hush__";
-			StringView constantName = entry.key;
-			int hushIdentifierIdx = constantName.IndexOf(HUSH_IDENTIFIER);
-			if (hushIdentifierIdx != -1) {
-				constantName = constantName.Substring(hushIdentifierIdx + HUSH_IDENTIFIER.Length);
-			}
-			int classSeparatorIdx = constantName.IndexOf("__");
-			if (classSeparatorIdx != -1) {
-				StringView className = constantName.Substring(0, classSeparatorIdx);
-				className.CopyTo(toAdd.className);
-				constantName = constantName.Substring(classSeparatorIdx + 2);
-			}
-			toAdd.name = constantName;
+			StringView unscopedConstantName = entry.key;
+			Scopes scopedDecl = LangUtils.ExtractScopes(unscopedConstantName);
+			StringView constantName = scopedDecl.GetName();
+			
+			// Last scope should be the class name
+			StringView className = scopedDecl.GetScopeAt(scopedDecl.scopesCount - 1);
+			className.CopyTo(toAdd.className);
+			constantName.CopyTo(toAdd.name);
 			toAdd.value = entry.value;
-			let key = toAdd.GetClassName();
-			if (!scopedConstants.ContainsKey(key)) {
-				let scopeList = new List<ConstantDecl>();
-				defer :: delete scopeList;
-				scopedConstants.Add(key, scopeList);
+			
+			StringView outMatch = null;
+			List<ConstantDecl> outList = null;
+			bool contains = scopedConstants.TryGet(unscopedConstantName, out outMatch, out outList);
+			if (!contains) {
+				outList = new List<ConstantDecl>();
+				defer :: delete outList;
+				scopedConstants.Add(unscopedConstantName, outList);
 			}
-			scopedConstants.GetValue(key).Value.Add(toAdd);
+
+			// Add the scope
+			outList.Add(toAdd);
+			
 		}
 
-		output.Append("namespace Hush;\n\n");
+		// Get the file checkpoint, if it did not exist it is guaranteed to contain the namespace
+		// So, we don't need this: output.Append("namespace Hush;\n\n");
 
 		String typeBuffer = scope String(16);
-		for (let classScope in scopedConstants) {
-			output.AppendF($"class {classScope.key} \{\n");
+		for (var classScope in scopedConstants) {
+			output.Clear();
+			FileCheckpoint* fileCheckpointRef = null;
+			List<ConstantDecl> currentDecl = classScope.value;
+			StringView className = currentDecl.Front.GetClassName();
+			Scopes scopedDecl = LangUtils.ExtractScopes(classScope.key);
+			FileCheckpoint fileCheckpoint = GetCheckpointForStruct(scopedDecl, className, out fileCheckpointRef);
+			fileCheckpointRef = fileCheckpointRef == null ? &fileCheckpoint : fileCheckpointRef;
+			String key = scope String(className);
+			this.m_checkpointsByStructName[key] = *fileCheckpointRef;
 			for (let entry in classScope.value) {
 				entry.value.VariantType.ToString(typeBuffer);
 				defer typeBuffer.Clear();
@@ -169,12 +169,14 @@ public class BeefGenerator : ILangGenerator {
 					output.AppendF($"\tpublic const {typeBuffer} {entry.name} = {entry.value.Get<double>()};\n");
 				}
 			}
-			output.Append("}\n\n");
+
+			uint8[] tempBuffer = scope uint8[MemUtils.KiB(3)];
+			EError writeErr = FileUtils.WriteAt(fileCheckpointRef, output, tempBuffer);
+			if (writeErr != EError.OK) {
+				Console.WriteLine(scope $"Error generating constants, {writeErr}");
+			}
+
 		}
-		let fileWriteRes = File.WriteAllText(scope $"{GEN_SRC_FOLDER}/Constants.bf", output);
-		if (fileWriteRes case .Err(let fileWriteErr)) {
-			Console.WriteLine(scope $"Error generating constants, {fileWriteErr}");
-		} 
 	}
 	
 	public void EmitType(in TypeInfo type, ref String appendBuffer, StringView* fieldName = null) {
@@ -205,7 +207,15 @@ public class BeefGenerator : ILangGenerator {
 		String* outKey = null;
 		bool contains = this.m_checkpointsByStructName.TryGetRef(scope String(structName), out outKey, out outCheckpointRef);
 		if (!contains) {
-			return FileCheckpoint(intendedFilePath, 0);
+			// We should encapsulate this in another class that does not exist, so let's request one to the generator
+			// The class can be empty as of now, it'll default as a struct but it's really just a namespace
+			StructDescription requestedDescription = StructDescription();
+			requestedDescription.fieldCount = 0;
+			requestedDescription.size = 1;
+			structName.CopyTo(requestedDescription.name);
+			EmitStruct(requestedDescription);
+			contains = this.m_checkpointsByStructName.TryGetRef(scope String(structName), out outKey, out outCheckpointRef);
+			Debug.Assert(contains, "Something went wrong with parent scope creation");
 		}
 		// We get the actual file this sub struct is pointing to
 		return *outCheckpointRef;
@@ -218,12 +228,12 @@ public class BeefGenerator : ILangGenerator {
 		}
 	}
 	
-	public void ILangGenerator.EmitStruct(in StructDescription structDesc)
+	public void EmitStruct(in StructDescription structDesc)
 	{
 		Debug.Assert(Parser != null, "Null parser when trying to parse a struct, please set the Parser property of this implementation");
 		// Given our source directory, we need to simply generate a Beef compatible struct string and put it into a file		
 
-		StringView nameView = StringView(&structDesc.name[0]);
+		StringView nameView = structDesc.GetName();
 		Scopes classScoped = LangUtils.ExtractScopes(nameView);
 		nameView = classScoped.GetName();
 		// This is optional and will only be filled in by the function in case the checkpoint exists in the dictionary
@@ -257,8 +267,9 @@ public class BeefGenerator : ILangGenerator {
 			Argument* field = &structDesc.fields[i];
 			// First type, then name
 			output.AppendF($"{tabulation}\tpublic "); // All fields in the export should be public
-			this.EmitType(field.typeInfo, ref output, &StringView(&field.name[0]));
-			output.AppendF($" {field.name};\n"); // Now the name and the semicolon
+			StringView fieldName = field.GetName();
+			this.EmitType(field.typeInfo, ref output, &fieldName);
+			output.AppendF($" {fieldName};\n"); // Now the name and the semicolon
 
 			// We set the last file checkpoint here so that it stays in scope and we can add function definitions here
 		}
@@ -312,7 +323,7 @@ public class BeefGenerator : ILangGenerator {
 		
 		output.AppendF($"{DEFAULT_DECL}\nenum {nameView} : int32 \{\n");
 		for (uint32 i = 0; i < enumDesc.valueCount; i++) {
-			StringView valueNameView = StringView(&enumDesc.valueNames[i][0]);
+			StringView valueNameView = enumDesc.GetValueNameAt(i);
 			
 			// Remove Hush__ prefix from enum values if present
 			int valuePrefixIndex = valueNameView.IndexOf(HUSH_PREFIX);
