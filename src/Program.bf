@@ -60,6 +60,7 @@ class Program {
 			Console.WriteLine($"Error parsing scopes: {err}");
 		}
 
+
 		for (ParseRegion region in parsingRegions) {
 			if (region.type == EScopeType.Struct) {
 				ProcessStruct(parser, generator, region.content);

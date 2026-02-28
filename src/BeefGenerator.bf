@@ -155,8 +155,9 @@ public class BeefGenerator : ILangGenerator {
 			List<ConstantDecl> currentDecl = classScope.value;
 			StringView className = currentDecl.Front.GetClassName();
 			Scopes scopedDecl = LangUtils.ExtractScopes(classScope.key);
-			FileCheckpoint fileCheckpoint = GetCheckpointForStruct(scopedDecl, className, out fileCheckpointRef);
-			fileCheckpointRef = fileCheckpointRef == null ? &fileCheckpoint : fileCheckpointRef;
+			bool _;
+			FileCheckpoint fileCheckpoint = GetCheckpointForStruct(scopedDecl, className, out _);
+			fileCheckpointRef = &fileCheckpoint;
 			String key = scope String(className);
 			this.m_checkpointsByStructName[key] = *fileCheckpointRef;
 			for (let entry in classScope.value) {
@@ -191,9 +192,16 @@ public class BeefGenerator : ILangGenerator {
 		}
 	}
 
-	private FileCheckpoint GetCheckpointForStruct(in Scopes classScoped, StringView className, out FileCheckpoint* outCheckpointRef) {
+	private FileCheckpoint GetCheckpointForStruct(in Scopes classScoped, StringView className, out bool shouldSkipDeclaration) {
 		let intendedFilePath = scope $"{GEN_SRC_FOLDER}/{className}.bf";
-		outCheckpointRef = null;
+		shouldSkipDeclaration = false;
+
+		String classNameStr = scope String(className);
+		if (this.m_checkpointsByStructName.ContainsKey(classNameStr)) {
+			shouldSkipDeclaration = true;
+			return this.m_checkpointsByStructName[classNameStr];
+		}
+
 
 		// We want to identify subclasses here too (use 1 bc of the namespace)
 		if (classScoped.scopesCount <= 1) {
@@ -205,6 +213,7 @@ public class BeefGenerator : ILangGenerator {
 		StringView structName = .(&classScoped.scopes[lastScopeIdx][0]);
 		// Find the checkcpoint to write to
 		String* outKey = null;
+		FileCheckpoint* outCheckpointRef = null;
 		bool contains = this.m_checkpointsByStructName.TryGetRef(scope String(structName), out outKey, out outCheckpointRef);
 		if (!contains) {
 			// We should encapsulate this in another class that does not exist, so let's request one to the generator
@@ -238,10 +247,11 @@ public class BeefGenerator : ILangGenerator {
 		nameView = classScoped.GetName();
 		// This is optional and will only be filled in by the function in case the checkpoint exists in the dictionary
 		FileCheckpoint* beginCheckpointRef = null;
-		FileCheckpoint checkpointToWriteBegin = GetCheckpointForStruct(classScoped, nameView, out beginCheckpointRef);
+		bool shouldSkipDeclaration;
+		FileCheckpoint checkpointToWriteBegin = GetCheckpointForStruct(classScoped, nameView, out shouldSkipDeclaration);
 		// Make sure it is not null lol
-		beginCheckpointRef = beginCheckpointRef == null ? &checkpointToWriteBegin : beginCheckpointRef;
-
+		beginCheckpointRef = &checkpointToWriteBegin;
+		
 		StringView filePath = checkpointToWriteBegin.GetFileName();
 		const int MAX_STRUCT_GEN_LENGTH = 1024 * 3; // Just a few kB no struct should be bigger than this
 		String output = scope String(MAX_STRUCT_GEN_LENGTH);
@@ -259,7 +269,9 @@ public class BeefGenerator : ILangGenerator {
 		uint8 tabCount = uint8(classScoped.scopesCount <= 0 ? 1 : classScoped.scopesCount - 1);
 		TabulateBuffer(tabulation, tabCount); // tabs are N of scopes - 1 (namespace)
 		
-		output.AppendF($"\n{tabulation}{DEFAULT_DECL}\n{tabulation}public {containerType} {nameView} \{\n");
+		if (!shouldSkipDeclaration) {
+			output.AppendF($"\n{tabulation}{DEFAULT_DECL}\n{tabulation}public {containerType} {nameView} \{\n\n");
+		}
 
 		int64 seekOffset = checkpointToWriteBegin.seekOffset;
 
@@ -289,7 +301,9 @@ public class BeefGenerator : ILangGenerator {
 			
 		}
 
-		output.AppendF($"{tabulation}\}\n");
+		if (!shouldSkipDeclaration) {
+			output.AppendF($"{tabulation}\}\n");
+		}
 
 		EnsureProjectDirectory();
 
@@ -314,8 +328,9 @@ public class BeefGenerator : ILangGenerator {
 		nameView = enumScoped.GetName();
 
 		FileCheckpoint* beginCheckpointRef = null;
-		FileCheckpoint checkpointToWriteBegin = GetCheckpointForStruct(enumScoped, nameView, out beginCheckpointRef);
-		beginCheckpointRef = beginCheckpointRef == null ? &checkpointToWriteBegin : beginCheckpointRef;
+		bool _;
+		FileCheckpoint checkpointToWriteBegin = GetCheckpointForStruct(enumScoped, nameView, out _);
+		beginCheckpointRef = &checkpointToWriteBegin;
 
 		StringView filePath = checkpointToWriteBegin.GetFileName();
 
@@ -340,7 +355,7 @@ public class BeefGenerator : ILangGenerator {
 			
 			output.AppendF($"\t{tabulation}{valueNameView} = {enumDesc.valueInts[i]},\n");
 		}
-		output.AppendF($"{tabulation}}}");
+		output.AppendF($"{tabulation}}}\n");
 
 		EnsureProjectDirectory();
 		
