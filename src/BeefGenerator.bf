@@ -276,7 +276,19 @@ public class BeefGenerator : ILangGenerator {
 		String key = new String(nameView);
 		Console.Write(scope $"{containerType} for type: {key}... "); // FIXME: Removing this seems to trigger an access violation (??!!?!?
 		seekOffset += (int64)output.Length;
-		this.m_checkpointsByStructName[key] = FileCheckpoint(filePath, seekOffset);
+
+		bool added = this.m_checkpointsByStructName.TryAdd(key, FileCheckpoint(filePath, seekOffset));
+		if (!added) {
+			// Force it in, but delete the previous key
+			let err = this.m_checkpointsByStructName.GetAndRemove(key);
+			if (err case .Err) {
+				// No-Op
+			}
+			delete err.Value.key;
+			this.m_checkpointsByStructName[key] = FileCheckpoint(filePath, seekOffset);
+			
+		}
+
 		output.AppendF($"{tabulation}\}\n");
 
 		EnsureProjectDirectory();
@@ -296,56 +308,70 @@ public class BeefGenerator : ILangGenerator {
 	{
 		Debug.Assert(Parser != null, "Null parser when trying to parse an enum, please set the Parser property of this implementation");
 
-		// First, name of the file needs to resemble the name of the enum
-		const StringView HUSH_PREFIX = "Hush__";
-
-		StringView nameView = StringView(&enumDesc.name[0]);
+		StringView nameView = enumDesc.GetName();
 		
 		Scopes enumScoped = LangUtils.ExtractScopes(nameView);
 		nameView = enumScoped.GetName();
-		int prefixIndex = nameView.IndexOf(HUSH_PREFIX);
 
-		if (prefixIndex != -1) {
-			nameView = nameView.Substring(prefixIndex + HUSH_PREFIX.Length);
-		}
+		FileCheckpoint* beginCheckpointRef = null;
+		FileCheckpoint checkpointToWriteBegin = GetCheckpointForStruct(enumScoped, nameView, out beginCheckpointRef);
+		beginCheckpointRef = beginCheckpointRef == null ? &checkpointToWriteBegin : beginCheckpointRef;
 
-		const uint64 MAX_ENUM_GEN_LENGTH = MemUtils.KiB(2); // 2kB should be enough for any enum
+		StringView filePath = checkpointToWriteBegin.GetFileName();
+
+		const uint64 MAX_ENUM_GEN_LENGTH = MemUtils.KiB(2);
 		String output = scope String(MAX_ENUM_GEN_LENGTH);
-		const StringView DEFAULT_DECL =
-			"""
-			namespace Hush;
-
-			using System;
-			using System.Collections;
-
-			[CRepr]
-			""";
 		
-		output.AppendF($"{DEFAULT_DECL}\nenum {nameView} : int32 \{\n");
+		if (checkpointToWriteBegin.seekOffset <= 0) {
+			output.Append("namespace Hush;\nusing System;\n");
+		}
+		
+		String tabulation = scope String(4);
+		uint8 tabCount = uint8(enumScoped.scopesCount <= 0 ? 1 : enumScoped.scopesCount - 1);
+		TabulateBuffer(tabulation, tabCount);
+		
+		output.AppendF($"\n{tabulation}[CRepr]\n{tabulation}enum {nameView} : int32 \{\n");
 		for (uint32 i = 0; i < enumDesc.valueCount; i++) {
 			StringView valueNameView = enumDesc.GetValueNameAt(i);
+			Scopes scopedValueName = LangUtils.ExtractScopes(valueNameView);
 			
-			// Remove Hush__ prefix from enum values if present
-			int valuePrefixIndex = valueNameView.IndexOf(HUSH_PREFIX);
-			if (valuePrefixIndex != -1) {
-				valueNameView = valueNameView.Substring(valuePrefixIndex + HUSH_PREFIX.Length);
-			}
+			valueNameView = scopedValueName.GetName();
 			
-			output.AppendF($"\t{valueNameView} = {enumDesc.valueInts[i]},\n");
+			
+			output.AppendF($"\t{tabulation}{valueNameView} = {enumDesc.valueInts[i]},\n");
 		}
-		output.Append("}");
+		output.AppendF($"{tabulation}}}");
 
 		EnsureProjectDirectory();
 		
-		let filePath = scope $"{GEN_SRC_FOLDER}/{nameView}.bf";
-		let writeRes = File.WriteAllText(filePath, output);
+		String key = new String(nameView);
+		Console.Write(scope $"enum for type: {key}... ");
+
 		
-		if (writeRes case .Err) {
+		uint8[] tempBuffer = scope uint8[MemUtils.KiB(3)];
+		EError writeErr = FileUtils.WriteAt(beginCheckpointRef, output, tempBuffer);
+		
+		if (writeErr != .OK) {
 			Console.WriteLine($"Could not generate file {filePath}!");
 			return;
 		}
-		
+
 		Console.WriteLine($"Written to file: {filePath}");
+
+		int64 seekOffset = checkpointToWriteBegin.seekOffset + (int64)output.Length;
+
+		bool added = this.m_checkpointsByStructName.TryAdd(key, FileCheckpoint(filePath, seekOffset));
+		if (!added) {
+			// Force it in, but delete the previous key
+			let err = this.m_checkpointsByStructName.GetAndRemove(key);
+			if (err case .Err) {
+				// No-Op
+			}
+			delete err.Value.key;
+			this.m_checkpointsByStructName[key] = FileCheckpoint(filePath, seekOffset);
+			
+		}
+
 	}
 
 	public void ToFullyScopedName(String buffer, in Scopes typeScopes) {
