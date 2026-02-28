@@ -71,7 +71,8 @@ public class BeefGenerator : ILangGenerator {
 			break;
 		case ECType.ENUM:
 			// For enum types, use the underlying type until we implement it in the generator
-			buffer.Append(type.structName);
+			Scopes enumScoped = LangUtils.ExtractScopes(type.structName);
+			ToFullyScopedName(buffer, enumScoped);
 			break;
 		case ECType.STRUCT:
 			StructDescription* structDecl = Parser.GetStructByName(type.structName);
@@ -266,11 +267,11 @@ public class BeefGenerator : ILangGenerator {
 		}
 		
 		String tabulation = scope String(4);
-		uint8 tabCount = uint8(classScoped.scopesCount <= 0 ? 1 : classScoped.scopesCount - 1);
+		uint8 tabCount = uint8(classScoped.scopesCount <= 0 ? 0 : classScoped.scopesCount - 1);
 		TabulateBuffer(tabulation, tabCount); // tabs are N of scopes - 1 (namespace)
 		
 		if (!shouldSkipDeclaration) {
-			output.AppendF($"\n{tabulation}{DEFAULT_DECL}\n{tabulation}public {containerType} {nameView} \{\n\n");
+			output.AppendF($"\n{tabulation}{DEFAULT_DECL}\n{tabulation}public {containerType} {nameView} \{\n");
 		}
 
 		int64 seekOffset = checkpointToWriteBegin.seekOffset;
@@ -345,7 +346,7 @@ public class BeefGenerator : ILangGenerator {
 		uint8 tabCount = uint8(enumScoped.scopesCount <= 0 ? 1 : enumScoped.scopesCount - 1);
 		TabulateBuffer(tabulation, tabCount);
 		
-		output.AppendF($"\n{tabulation}[CRepr]\n{tabulation}enum {nameView} : int32 \{\n");
+		output.AppendF($"\n{tabulation}[CRepr]\n{tabulation}public enum {nameView} : int32 \{\n");
 		for (uint32 i = 0; i < enumDesc.valueCount; i++) {
 			StringView valueNameView = enumDesc.GetValueNameAt(i);
 			Scopes scopedValueName = LangUtils.ExtractScopes(valueNameView);
