@@ -21,6 +21,9 @@ public interface ILangGenerator {
 
 	public void FunctionPtrToStr(in FunctionProps fnProps, String buffer);
 
+	/// @brief This simply creates your project's directory, and should run any setup commands needed for your language (i.e dotnet new classlib)
+	public void EnsureProjectDirectory();
+
 	
 }
 

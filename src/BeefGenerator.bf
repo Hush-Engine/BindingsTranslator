@@ -5,25 +5,10 @@ using System.Diagnostics;
 using System.Collections;
 using System.IO;
 
-public struct FileCheckpoint {
-	public char8[64] fileName;
-	public int64 seekOffset;
-
-	public this(StringView filePath, int64 offset) {
-		this.fileName = char8[64]();
-		filePath.CopyTo(this.fileName);
-		this.seekOffset = offset;
-	}
-
-	public StringView GetFileName() {
-		return .(&this.fileName);
-	}
-}
-
 public class BeefGenerator : ILangGenerator {
 	const uint64 CLASS_SIZE_THRESHOLD = 24;
 
-	const StringView GEN_SRC_FOLDER = "generated/src";
+	const StringView GEN_SRC_FOLDER = "beef-hush/src/generated";
 
 	public CParser Parser { get; set; }
 
@@ -36,7 +21,7 @@ public class BeefGenerator : ILangGenerator {
 		}
 	}
 
-	private void EnsureProjectDirectory() {
+	public void EnsureProjectDirectory() {
 		if (!Directory.Exists(GEN_SRC_FOLDER)) {
 			Directory.CreateDirectory(GEN_SRC_FOLDER);
 		}
@@ -259,8 +244,10 @@ public class BeefGenerator : ILangGenerator {
 		const StringView DEFAULT_DECL = "[CRepr]";
 
 		// Define if we want to make a struct or a class based on the size of it (24 bytes)
-		String containerType = scope String(6);
-		containerType += structDesc.size > CLASS_SIZE_THRESHOLD ? "class" : "struct";
+		// String containerType = scope String(6);
+		const StringView containerType = "struct";
+		
+		// containerType += structDesc.size > CLASS_SIZE_THRESHOLD ? "class" : "struct";
 
 		if (checkpointToWriteBegin.seekOffset <= 0) {
 			output.Append("namespace Hush;\nusing System;\n");

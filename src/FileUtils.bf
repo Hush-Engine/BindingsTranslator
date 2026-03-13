@@ -3,6 +3,21 @@ using System.IO;
 using System.Diagnostics;
 using System;
 
+public struct FileCheckpoint {
+	public char8[64] fileName;
+	public int64 seekOffset;
+
+	public this(StringView filePath, int64 offset) {
+		this.fileName = char8[64]();
+		filePath.CopyTo(this.fileName);
+		this.seekOffset = offset;
+	}
+
+	public StringView GetFileName() {
+		return .(&this.fileName);
+	}
+}
+
 class FileUtils {
 	public static EError WriteAt(FileCheckpoint* checkpoint, StringView content, Span<uint8> tempBuffer) {
 		Debug.Assert(checkpoint != null, "Cannot write at file with a null checkpoint");
