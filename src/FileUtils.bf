@@ -24,7 +24,13 @@ class FileUtils {
 		let filePath = StringView(&checkpoint.fileName[0]);
 		if (checkpoint.seekOffset == 0) {
 			// Overwrite the file
-			File.WriteAllText(filePath, content);
+			let writeErr = File.WriteAllText(filePath, content);
+
+			if (writeErr case .Err(let errDesc)) {
+				Console.WriteLine(scope $"There was an error writing to the file: {errDesc}");
+				return EError.OPEN_FILE_ERROR;
+			}
+
 			return EError.OK;
 		}
 		FileStream stream = scope .();

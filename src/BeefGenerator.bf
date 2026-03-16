@@ -398,6 +398,37 @@ public class BeefGenerator : ILangGenerator {
 		StringView fnName = StringView(&funcDesc.name[0]);
 		Scopes scopes = LangUtils.ExtractScopes(fnName);
 
+		let scopeWithName = scopes.scopes[scopes.scopesCount - 1];
+		let structStr = scope String(&scopeWithName[0]);
+		String* matchKey = null;
+		FileCheckpoint* value = null;
+		bool isMemberFunction = this.m_checkpointsByStructName.TryGetRef(structStr, out matchKey, out value);
+
+		StringView memberFnName;
+		String typeBuffer = scope String(64);
+		if (isMemberFunction) {
+			memberFnName = scopes.GetName();
+		}
+		else {
+			memberFnName = fnName;
+			typeBuffer.Append("static ");
+			String key = scope .("GlobalFunctions");
+			bool contains = this.m_checkpointsByStructName.TryGetRef(key, out matchKey, out value);
+			if (!contains) {
+				const StringView GLOBAL_FUNCS_DEF = "namespace Hush;\nusing System;\npublic static class GlobalFunctions {";
+				this.m_checkpointsByStructName[new String("GlobalFunctions")] = .(scope $"{GEN_SRC_FOLDER}/GlobalFunctions.bf", 0);
+				this.m_checkpointsByStructName.TryGetRef(key, out matchKey, out value);
+				var newFileInput = scope String(GLOBAL_FUNCS_DEF.Length);
+				newFileInput.Append(GLOBAL_FUNCS_DEF);
+				newFileInput.Append("\n}");
+				uint8[] contentsAfter = scope uint8[512];
+				FileUtils.WriteAt(value, newFileInput, contentsAfter);
+				value.seekOffset = GLOBAL_FUNCS_DEF.Length;
+			}
+		}
+
+		this.ToTypeString(funcDesc.returnType, typeBuffer);
+
 		// Define both the link function and the public facing API
 
 		// Link fn example from the SDL2 bindings
@@ -407,16 +438,12 @@ public class BeefGenerator : ILangGenerator {
 		String output = scope String(MAX_FN_DECL_LENGTH);
 		String fnImplementation = scope String(512);
 		
-		String typeBuffer = scope String(64);
-		this.ToTypeString(funcDesc.returnType, typeBuffer);
-		
 		String tabulation = scope String(4);
 		uint8 tabCount = uint8(scopes.scopesCount <= 0 ? 1 : scopes.scopesCount - 1);
 		TabulateBuffer(tabulation, tabCount); // tabs are N of scopes - 1 (namespace)
 		
 		output.AppendF($"\n{tabulation}[LinkName(\"{fnName}\")]\n{tabulation}public static extern {typeBuffer} {fnName}(");
 
-		StringView memberFnName = scopes.GetName();
 		fnImplementation.AppendF($"{tabulation}public {typeBuffer} {memberFnName}(");
 		// Then append the method args
 		const int COMMA_AND_SPACE_OFFSET = 2;
@@ -469,17 +496,11 @@ public class BeefGenerator : ILangGenerator {
 		fnImplementation.Length -= COMMA_AND_SPACE_OFFSET;
 		fnImplementation.AppendF($");\n{tabulation}\}");
 
-		output.AppendF($"{fnImplementation}\n");
+		if (isMemberFunction) {
+			output.AppendF($"{fnImplementation}\n");
+		}
 
 		// Now, this output should be sent to the last book-kept offset on the scope
-		let scopeWithName = scopes.scopes[scopes.scopesCount - 1];
-		let structStr = scope String(&scopeWithName[0]);
-		String* matchKey = null;
-		FileCheckpoint* value = null;
-		bool matched = this.m_checkpointsByStructName.TryGetRef(structStr, out matchKey, out value);
-
-		if (!matched) return;
-
 		// Use the largest expected file size
 		uint8[] contentsAfter = scope uint8[MemUtils.KiB(5)];
 		FileUtils.WriteAt(value, output, contentsAfter);

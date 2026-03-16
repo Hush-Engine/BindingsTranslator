@@ -63,11 +63,11 @@ struct StructDescription {
 
 struct EnumDescription {
 	public const int64 MAX_ENUM_NAME = 128;
-	public const int64 MAX_ENUM_VALUES = 64;
+	public const int64 MAX_ENUM_VALUES = 1024;
 	public const int64 MAX_VALUE_NAME = 128;
 	
 	public char8[MAX_ENUM_NAME] name;
-	public char8[MAX_VALUE_NAME][MAX_ENUM_VALUES] valueNames;
+	public List<char8[MAX_VALUE_NAME]> valueNames;
 	public int64[MAX_ENUM_VALUES] valueInts;
 	public uint32 valueCount;
 	public int64 defaultValue;
@@ -150,6 +150,7 @@ class CParser {
 			delete entry.key;
 		}
 		for (let entry in this.m_registeredEnumsByName) {
+			delete entry.value.valueNames;
 			delete entry.key;
 		}
 		for (let entry in this.m_functions) {
@@ -923,6 +924,7 @@ class CParser {
 	/// @brief Parses an enum description, the string needs to be identified (from typedef enum to final enclosing curly bracket)
 	public EError TryParseEnum(out EnumDescription enumDesc, in StringView enumRegion) {
 		enumDesc = EnumDescription{};
+		enumDesc.valueNames = new List<char8[128]>();
 		enumDesc.underlyingType = ECType.INT32;
 		
 		uint32 index = 0;
@@ -1013,7 +1015,7 @@ class CParser {
 			Console.WriteLine($"Too many enum values in {enumDesc.name}, max is {EnumDescription.MAX_ENUM_VALUES}");
 			return EError.FORMAT_ERROR;
 		}
-		
+		enumDesc.valueNames.Add(.());
 		namePart.CopyTo(enumDesc.valueNames[enumDesc.valueCount]);
 		
 		// Parse the value (if not provided, use previous value + 1 or 0 for first)
