@@ -326,6 +326,7 @@ public class BeefGenerator : ILangGenerator {
 		String output = scope String(MAX_ENUM_GEN_LENGTH);
 		
 		if (checkpointToWriteBegin.seekOffset <= 0) {
+			// Enums can go into the actual Beef-Hush namespace
 			output.Append("namespace Hush;\nusing System;\n");
 		}
 		
@@ -410,12 +411,12 @@ public class BeefGenerator : ILangGenerator {
 			memberFnName = scopes.GetName();
 		}
 		else {
-			memberFnName = fnName;
 			typeBuffer.Append("static ");
+			memberFnName = fnName;
 			String key = scope .("GlobalFunctions");
 			bool contains = this.m_checkpointsByStructName.TryGetRef(key, out matchKey, out value);
 			if (!contains) {
-				const StringView GLOBAL_FUNCS_DEF = "namespace Hush;\nusing System;\npublic static class GlobalFunctions {";
+				const StringView GLOBAL_FUNCS_DEF = "namespace Hush;\nusing System;\npublic static class GlobalFunctions {\n";
 				this.m_checkpointsByStructName[new String("GlobalFunctions")] = .(scope $"{GEN_SRC_FOLDER}/GlobalFunctions.bf", 0);
 				this.m_checkpointsByStructName.TryGetRef(key, out matchKey, out value);
 				var newFileInput = scope String(GLOBAL_FUNCS_DEF.Length);
@@ -442,9 +443,9 @@ public class BeefGenerator : ILangGenerator {
 		uint8 tabCount = uint8(scopes.scopesCount <= 0 ? 1 : scopes.scopesCount - 1);
 		TabulateBuffer(tabulation, tabCount); // tabs are N of scopes - 1 (namespace)
 		
-		output.AppendF($"\n{tabulation}[LinkName(\"{fnName}\")]\n{tabulation}public static extern {typeBuffer} {fnName}(");
+		// output.AppendF($"\n{tabulation}public static {typeBuffer} {fnName}(");
 
-		fnImplementation.AppendF($"{tabulation}public {typeBuffer} {memberFnName}(");
+		fnImplementation.AppendF($"\n{tabulation}public {typeBuffer} {memberFnName}(");
 		// Then append the method args
 		const int COMMA_AND_SPACE_OFFSET = 2;
 		int argCount = 0;
@@ -455,27 +456,26 @@ public class BeefGenerator : ILangGenerator {
 			typeBuffer.Clear();
 			this.ToTypeString(funcDesc.args[i].typeInfo, typeBuffer);
 			StringView argName = StringView(&funcDesc.args[i].name[0]);
-			output.AppendF($"{typeBuffer} {argName}, ");
-			if (argName == "self") {
+			if (argName == "self" && isMemberFunction) {
 				// Skip the self argument for the member function
 				continue;
 			}
 			argCount++;
 			fnImplementation.AppendF($"{typeBuffer} {argName}, ");
 		}
-		output.Length -= COMMA_AND_SPACE_OFFSET;
+		// output.Length -= COMMA_AND_SPACE_OFFSET;
 		if (argCount > 0) {
 			fnImplementation.Length -= COMMA_AND_SPACE_OFFSET;
 		}
 
-		output.Append(");\n");
+		// output.Append(");\n");
 		fnImplementation.AppendF($") \{\n{tabulation}\t");
 
 		// Now we add the implementation of this function, which should be a member function calling the linked fn
 		if (funcDesc.returnType.type != ECType.VOID || funcDesc.returnType.pointerLevel > 0) {
 			fnImplementation.Append("return ");
 		}
-		fnImplementation.AppendF($"{fnName}(");
+		fnImplementation.AppendF($"BeefHush.EngineDependencies.Instance.FunctionPointerTable.HushFuncPtr_{fnName}(");
 		for (int i = 0; i < funcDesc.args.Count; i++) {
 			Argument currArg = funcDesc.args[i];
 			if (currArg.typeInfo.type == ECType.UNDEFINED) {
@@ -483,7 +483,7 @@ public class BeefGenerator : ILangGenerator {
 			}
 			String nameBuffer = scope String(16);
 			StringView argName = StringView(&currArg.name[0]);
-			if (argName == "self") {
+			if (argName == "self" && isMemberFunction) {
 				argName = "&this";
 			}
 			if (argName.IsEmpty) {
@@ -496,9 +496,7 @@ public class BeefGenerator : ILangGenerator {
 		fnImplementation.Length -= COMMA_AND_SPACE_OFFSET;
 		fnImplementation.AppendF($");\n{tabulation}\}");
 
-		if (isMemberFunction) {
-			output.AppendF($"{fnImplementation}\n");
-		}
+		output.AppendF($"{fnImplementation}\n");
 
 		// Now, this output should be sent to the last book-kept offset on the scope
 		// Use the largest expected file size

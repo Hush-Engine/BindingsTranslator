@@ -1,5 +1,9 @@
 FileVersion = 1
-Projects = {HushBindingGen = {Path = "."}}
+Projects = {HushBindingGen = {Path = "."}, beef-hush = {Path = "beef-hush"}}
 
 [Workspace]
 StartupProject = "HushBindingGen"
+
+[Configs.Debug.Win64]
+Toolset = "LLVM"
+EnableRealtimeLeakCheck = false
