@@ -15,8 +15,14 @@ public class BeefGenerator : ILangGenerator {
 	// TODO: Replace String with some sort of SmallString class that contains a set 32 byte buffer
 	private Dictionary<String, FileCheckpoint> m_checkpointsByStructName = new Dictionary<String, FileCheckpoint>() ~ delete _;
 
+	// For Free functions
+	private Dictionary<String, FileCheckpoint> m_checkpointsByHandleName = new Dictionary<String, FileCheckpoint>() ~ delete _;
+
 	~this() {
 		for (var entry in this.m_checkpointsByStructName) {
+			delete entry.key;
+		}
+		for (var entry in this.m_checkpointsByHandleName) {
 			delete entry.key;
 		}
 	}
@@ -387,15 +393,6 @@ public class BeefGenerator : ILangGenerator {
 	}
 
 	public void EmitMethod(in FunctionProps funcDesc) {
-		// We can put functions with params as struct* self on the same file as the struct
-		// BUT, we still need a reference to the original function name to call it within the implemented function
-		// i.e Hush__Entity__AddComponentRaw can go under:
-		// class Entity {
-		//     AddComponentRaw() {
-		//         // But here we need to call it from the original C name
-		//         Hush__Entity__AddComponentRaw();
-		//     }
-		// }
 		StringView fnName = StringView(&funcDesc.name[0]);
 		Scopes scopes = LangUtils.ExtractScopes(fnName);
 
@@ -413,18 +410,18 @@ public class BeefGenerator : ILangGenerator {
 		else {
 			typeBuffer.Append("static ");
 			memberFnName = fnName;
-			String key = scope .("GlobalFunctions");
-			bool contains = this.m_checkpointsByStructName.TryGetRef(key, out matchKey, out value);
+			bool contains = this.m_checkpointsByHandleName.TryGetRef(structStr, out matchKey, out value);
 			if (!contains) {
-				const StringView GLOBAL_FUNCS_DEF = "namespace Hush;\nusing System;\npublic static class GlobalFunctions {\n";
-				this.m_checkpointsByStructName[new String("GlobalFunctions")] = .(scope $"{GEN_SRC_FOLDER}/GlobalFunctions.bf", 0);
-				this.m_checkpointsByStructName.TryGetRef(key, out matchKey, out value);
-				var newFileInput = scope String(GLOBAL_FUNCS_DEF.Length);
-				newFileInput.Append(GLOBAL_FUNCS_DEF);
+				let staticClassDef = scope $"namespace Hush;\nusing System;\npublic static class {structStr} {{\n";
+				String key = new String(structStr);
+				this.m_checkpointsByHandleName[key] = .(scope $"{GEN_SRC_FOLDER}/{structStr}.bf", 0);
+				this.m_checkpointsByHandleName.TryGetRef(key, out matchKey, out value);
+				var newFileInput = scope String(staticClassDef.Length);
+				newFileInput.Append(staticClassDef);
 				newFileInput.Append("\n}");
 				uint8[] contentsAfter = scope uint8[512];
 				FileUtils.WriteAt(value, newFileInput, contentsAfter);
-				value.seekOffset = GLOBAL_FUNCS_DEF.Length;
+				value.seekOffset = staticClassDef.Length;
 			}
 		}
 
