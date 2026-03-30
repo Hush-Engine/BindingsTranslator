@@ -404,12 +404,11 @@ public class BeefGenerator : ILangGenerator {
 
 		StringView memberFnName;
 		String typeBuffer = scope String(64);
-		if (isMemberFunction) {
-			memberFnName = scopes.GetName();
-		}
-		else {
+		memberFnName = scopes.GetName();
+
+		if (!isMemberFunction) {
 			typeBuffer.Append("static ");
-			memberFnName = fnName;
+
 			bool contains = this.m_checkpointsByHandleName.TryGetRef(structStr, out matchKey, out value);
 			if (!contains) {
 				let staticClassDef = scope $"namespace Hush;\nusing System;\npublic static class {structStr} {{\n";
