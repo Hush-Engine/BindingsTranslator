@@ -220,6 +220,7 @@ class CParser {
 		String* outMatchKey;
 		StructDescription* result = null;
 		this.m_registeredStructsByName.TryGetRef(scope String(key), out outMatchKey, out result);
+		
 		return result;
 	}
 
@@ -240,20 +241,35 @@ class CParser {
 
 	public EError TryParseTypedef(in StringView str, out String key, out TypeInfo typeInfo) {
 		// Assumes the typedef is valid
-		// We'll start by the last semicolon, and find the uninterrupted identifier, that's the entry
 		key = null;
-		// int semicolonIdx = str.IndexOf(';');
+		const StringView TYPEDEF = "typedef";
+
+		typeInfo = TypeInfo();
+
+		FunctionProps functionPtrProps = .();
+
+		if (TryParseFunctionPtr(str.Substring(TYPEDEF.Length), out functionPtrProps)) {
+			key = new String(&functionPtrProps.name[0]);
+			typeInfo.kind = ETypeKind.FUNCTION_POINTER;
+			typeInfo.type = ECType.FUNCTION_POINTER;
+			typeInfo.size = sizeof(function void());
+			typeInfo.align = alignof(function void());
+			typeInfo.structName = key;
+			this.m_functions[key] = functionPtrProps;
+			return EError.OK;
+		}
+
 		int spaceIdx = str.LastIndexOf(' ');
 		
 		StringView foundAlias = str.Substring(spaceIdx);
 		// Remove semicolon
 		foundAlias.Length--;
-		const StringView TYPEDEF = "typedef";
 		int offset = spaceIdx - TYPEDEF.Length;
 		StringView typeRefStr = str.Substring(TYPEDEF.Length, offset).Strip();
-
-		typeInfo = TypeInfo();
-		this.TryParseType(typeRefStr, ref typeInfo, true);
+		
+		if (this.TryParseType(typeRefStr, ref typeInfo, true) != EError.OK) {
+			return EError.FORMAT_ERROR;
+		}
 
 		key = new String(foundAlias.Strip());
 

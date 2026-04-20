@@ -54,9 +54,16 @@ public class BeefGenerator : ILangGenerator {
 			buffer.Append("uint64");
 			break;
 		case ECType.FUNCTION_POINTER:
-			Debug.Assert(fieldName != null, "When parsing a function pointer a field name is necessary for a lookup into the functions table");
-			FunctionProps* fnProps = Parser.GetFunctionInfo(*fieldName);
-			Runtime.Assert(fnProps != null, scope $"Could not find a function pointer with the name {*fieldName}");
+			StringView functionIndexer;
+			if (fieldName == null) {
+				// Maybe it's a typedef'd function pointer
+				functionIndexer = type.structName;
+			}
+			else {
+				functionIndexer = *fieldName;
+			}
+			FunctionProps* fnProps = Parser.GetFunctionInfo(functionIndexer);
+			Runtime.Assert(fnProps != null, scope $"Could not find a function pointer with the name {functionIndexer}");
 			// Wooo, recursion
 			FunctionPtrToStr(*fnProps, buffer);
 			break;
@@ -393,6 +400,9 @@ public class BeefGenerator : ILangGenerator {
 	}
 
 	public void EmitMethod(in FunctionProps funcDesc) {
+		if (scope String(&funcDesc.name[0]).Contains("AddComponentObserverRaw")) {
+			while(false){}
+		}
 		StringView fnName = StringView(&funcDesc.name[0]);
 		Scopes scopes = LangUtils.ExtractScopes(fnName);
 
@@ -450,7 +460,9 @@ public class BeefGenerator : ILangGenerator {
 				break;
 			}
 			typeBuffer.Clear();
-			this.ToTypeString(funcDesc.args[i].typeInfo, typeBuffer);
+			// Special case for typedef'd args
+			TypeInfo ti = funcDesc.args[i].typeInfo;
+			this.ToTypeString(ti, typeBuffer);
 			StringView argName = StringView(&funcDesc.args[i].name[0]);
 			if (argName == "self" && isMemberFunction) {
 				// Skip the self argument for the member function
