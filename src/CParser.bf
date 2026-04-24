@@ -759,7 +759,10 @@ class CParser {
 			TypeInfo* typedefTypeInfo = this.GetTypedefInfo(key);
 
 			if (typedefTypeInfo != null) {
+				TypeInfo tmp = typeInfo;
 				typeInfo = *typedefTypeInfo;
+				// Preserve pointer level
+				typeInfo.pointerLevel = tmp.pointerLevel;
 				break;
 			}
 
