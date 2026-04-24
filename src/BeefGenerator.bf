@@ -157,7 +157,7 @@ public class BeefGenerator : ILangGenerator {
 			bool _;
 			FileCheckpoint fileCheckpoint = GetCheckpointForStruct(scopedDecl, className, out _);
 			fileCheckpointRef = &fileCheckpoint;
-			String key = scope String(className);
+			String key = new String(className);
 			this.m_checkpointsByStructName[key] = *fileCheckpointRef;
 			for (let entry in classScope.value) {
 				entry.value.VariantType.ToString(typeBuffer);
