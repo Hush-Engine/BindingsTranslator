@@ -155,6 +155,9 @@ public class BeefGenerator : ILangGenerator {
 			StringView className = currentDecl.Front.GetClassName();
 			Scopes scopedDecl = LangUtils.ExtractScopes(classScope.key);
 			bool _;
+			if (className.Contains("Hush")) {
+				void();
+			}
 			FileCheckpoint fileCheckpoint = GetCheckpointForStruct(scopedDecl, className, out _);
 			fileCheckpointRef = &fileCheckpoint;
 			String key = new String(className);
@@ -410,7 +413,9 @@ public class BeefGenerator : ILangGenerator {
 		let structStr = scope String(&scopeWithName[0]);
 		String* matchKey = null;
 		FileCheckpoint* value = null;
-		bool isMemberFunction = this.m_checkpointsByStructName.TryGetRef(structStr, out matchKey, out value);
+		// HACK: To know if this is a handle, in reality a handle should never end up in the checkpointsByStructName
+		bool isHandle = this.Parser.IsHandle(scope $"Hush__{structStr}");
+		bool isMemberFunction = this.m_checkpointsByStructName.TryGetRef(structStr, out matchKey, out value) && !isHandle;
 
 		StringView memberFnName;
 		String typeBuffer = scope String(64);

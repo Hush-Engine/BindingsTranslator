@@ -142,6 +142,8 @@ class CParser {
 
 	private Dictionary<String, TypeInfo> m_primitiveTypedefs = new Dictionary<String, TypeInfo>() ~ delete _;
 
+	private HashSet<String> m_handles = new HashSet<String>() ~ delete _;
+
 	~this() {
 		for (let entry in this.m_primitiveTypedefs) {
 			delete entry.key;
@@ -159,6 +161,10 @@ class CParser {
 		for (let entry in this.m_defines) {
 			delete entry.key;
 		}
+	}
+
+	public bool IsHandle(StringView key) {
+		return this.m_handles.Contains(scope String(key));
 	}
 
 	public void AddDefinition(String key, Variant value) {
@@ -499,6 +505,16 @@ class CParser {
 		            ParseRegion region = .() { type = .Struct, content = remaining.Substring(0, endIdx) };
 		            outRegions.Add(region);
 	            }
+				else {
+					StringView fullTypedef = remaining.Substring(0, endIdx);
+					
+					int spaceIdx = fullTypedef.LastIndexOf(' ');
+
+					StringView foundAlias = fullTypedef.Substring(spaceIdx);
+					// Remove semicolon
+					foundAlias.Length--;
+					this.m_handles.Add(new String(foundAlias.Strip()));
+				}
 	            currentPos += (uint32)endIdx;
 	            continue;
 	        }
