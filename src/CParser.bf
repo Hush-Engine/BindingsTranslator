@@ -609,6 +609,13 @@ class CParser {
 	}
 
 	private EError TryParseRawArgumentList(ref FunctionProps functionProps, in StringView rawArgs) {
+		// Edge case: in C, a function taking no arguments is declared as fn(void),
+		// which should be interpreted as an empty argument list rather than a single void argument
+		StringView strippedArgs = rawArgs.Strip();
+		if (strippedArgs == "void") {
+			return EError.OK;
+		}
+
 		int currentArgIdx = 0;
 		for (StringView rawArg in rawArgs.Split(',')) {
 			rawArg = rawArg.Strip();

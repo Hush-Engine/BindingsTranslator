@@ -96,14 +96,17 @@ public class BeefGenerator : ILangGenerator {
 		let retTypeBuff = scope String(16);
 		ToTypeString(fnProps.returnType, retTypeBuff);
 		buffer.AppendF($"function {retTypeBuff}(");
+		int argsStartLen = buffer.Length;
 		for (int i = 0; i < fnProps.args.Count && fnProps.args[i].typeInfo.type != ECType.UNDEFINED; i++) {
 			retTypeBuff.Clear();
 			ToTypeString(fnProps.args[i].typeInfo, retTypeBuff);
 			buffer.AppendF($"{retTypeBuff} {fnProps.args[i].name},");
 		}
-		buffer.Length--; // remove last comma
-		if (buffer[buffer.Length - 1].IsWhiteSpace) {
-			buffer.Length--;
+		if (buffer.Length > argsStartLen) {
+			buffer.Length--; // remove last comma
+			if (buffer[buffer.Length - 1].IsWhiteSpace) {
+				buffer.Length--;
+			}
 		}
 		buffer.AppendF(")");
 	}
@@ -218,7 +221,24 @@ public class BeefGenerator : ILangGenerator {
 		FileCheckpoint* outCheckpointRef = null;
 		bool contains = this.m_checkpointsByStructName.TryGetRef(scope String(structName), out outKey, out outCheckpointRef);
 		if (!contains) {
-			// We should encapsulate this in another class that does not exist, so let's request one to the generator
+			// Before creating a phantom struct, check if the parent is a handle-based static class
+			bool isHandle = Parser.IsHandle(scope $"Hush__{structName}");
+			if (isHandle) {
+				bool handleContains = this.m_checkpointsByHandleName.TryGetRef(scope String(structName), out outKey, out outCheckpointRef);
+				if (!handleContains) {
+					let staticClassDef = scope $"namespace Hush;\nusing System;\npublic static class {structName} {{\n";
+					String key = new String(structName);
+					this.m_checkpointsByHandleName[key] = .(scope $"{GEN_SRC_FOLDER}/{structName}.bf", 0);
+					this.m_checkpointsByHandleName.TryGetRef(key, out outKey, out outCheckpointRef);
+					var newFileInput = scope String(staticClassDef.Length + 3);
+					newFileInput.Append(staticClassDef);
+					newFileInput.Append("\n}");
+					uint8[] contentsAfter = scope uint8[512];
+					FileUtils.WriteAt(outCheckpointRef, newFileInput, contentsAfter);
+					outCheckpointRef.seekOffset = (int64)staticClassDef.Length;
+				}
+				return *outCheckpointRef;
+			}
 			// The class can be empty as of now, it'll default as a struct but it's really just a namespace
 			StructDescription requestedDescription = StructDescription();
 			requestedDescription.fieldCount = 0;
@@ -489,6 +509,7 @@ public class BeefGenerator : ILangGenerator {
 			fnImplementation.Append("return ");
 		}
 		fnImplementation.AppendF($"BeefHush.EngineDependencies.Instance.FunctionPointerTable.HushFuncPtr_{fnName}(");
+		int callArgsStartLen = fnImplementation.Length;
 		for (int i = 0; i < funcDesc.args.Count; i++) {
 			Argument currArg = funcDesc.args[i];
 			if (currArg.typeInfo.type == ECType.UNDEFINED) {
@@ -506,7 +527,9 @@ public class BeefGenerator : ILangGenerator {
 			fnImplementation.AppendF($"{argName}, ");
 		}
 
-		fnImplementation.Length -= COMMA_AND_SPACE_OFFSET;
+		if (fnImplementation.Length > callArgsStartLen) {
+			fnImplementation.Length -= COMMA_AND_SPACE_OFFSET;
+		}
 		fnImplementation.AppendF($");\n{tabulation}\}");
 
 		output.AppendF($"{fnImplementation}\n");
