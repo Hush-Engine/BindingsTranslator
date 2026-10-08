@@ -48,7 +48,7 @@ struct TypeScopeExtent {
 
 struct StructDescription {
 	const int64 MAX_FIELD_NAME = 128;
-	const int64 MAX_STRUCT_FIELDS = 64;
+	const int64 MAX_STRUCT_FIELDS = 255; // The Hush function pointer table has got a lot of fields
 	public char8[MAX_FIELD_NAME] name;
 	public Argument[MAX_STRUCT_FIELDS] fields;
 	public uint32 fieldCount;

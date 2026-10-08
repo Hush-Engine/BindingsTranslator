@@ -8,6 +8,7 @@
 extern "C" {
 #endif
 
+typedef uint64_t Hush__ModuleHandle;
 typedef uint64_t Hush__Entity_EntityId;
 typedef void (*Hush__ObserverCallback_t)(Hush__Entity_EntityId, void *);
 typedef uint32_t Hush__ComponentTraits__EComponentOpsFlags;
@@ -28,6 +29,14 @@ typedef uint32_t Hush__ComponentTraits__EComponentOpsFlags;
 #define Hush__ComponentTraits__EComponentOpsFlags_NoMoveCtor 65536
 #define Hush__ComponentTraits__EComponentOpsFlags_NoMoveDtor 131072
 #define Hush__ComponentTraits__EComponentOpsFlags_NoMoveAssignDtor 262144
+
+typedef uint8_t Hush__Reflection__VariantView__EVariantError;
+#define Hush__Reflection__VariantView__EVariantError_None 0
+#define Hush__Reflection__VariantView__EVariantError_NonSameType 1
+
+typedef uint8_t Hush__Reflection__ERegisterClassError;
+#define Hush__Reflection__ERegisterClassError_None 0
+#define Hush__Reflection__ERegisterClassError_DuplicateType 1
 
 typedef enum Hush__RawQuery__ECacheMode {
 	Hush__RawQuery__ECacheMode_Default = 0,
@@ -557,6 +566,34 @@ typedef struct Hush__ComponentTraits__ComponentInfo {
 	void (*userCtxFree)(void *);
 } Hush__ComponentTraits__ComponentInfo;
 
+typedef struct Hush__Reflection__ForeignVariant {
+	alignas(8) char m_member0[40];
+} Hush__Reflection__ForeignVariant;
+
+void Hush__Reflection__ForeignVariant_destroy(Hush__Reflection__ForeignVariant **self);
+typedef struct Hush__Reflection__FieldInfo {
+	alignas(8) char m_member0[8];
+	alignas(8) char m_member1[32];
+	alignas(8) char m_member2[64];
+	alignas(8) char m_member3[64];
+	alignas(8) char m_member4[8];
+} Hush__Reflection__FieldInfo;
+
+void Hush__Reflection__FieldInfo_destroy(Hush__Reflection__FieldInfo **self);
+typedef struct Hush__Reflection__TypeInfo {
+	alignas(8) char m_member0[8];
+	alignas(8) char m_member1[8];
+	alignas(8) char m_member2[24];
+	alignas(8) char m_member3[24];
+	alignas(8) char m_member4[24];
+	alignas(8) char m_member5[24];
+	alignas(8) char m_member6[32];
+	alignas(8) char m_member7[8];
+	alignas(8) char m_member8[8];
+} Hush__Reflection__TypeInfo;
+
+void Hush__Reflection__TypeInfo_destroy(Hush__Reflection__TypeInfo **self);
+typedef struct Hush__Reflection__ReflectionDB Hush__Reflection__ReflectionDB;
 typedef struct Hush__Entity {
 	alignas(8) char m_member0[8];
 	alignas(8) char m_member1[8];
@@ -596,6 +633,46 @@ typedef struct Hush__RenderingSystemAPI {
 	void * instance;
 } Hush__RenderingSystemAPI;
 
+typedef struct Hush__Camera {
+	alignas(4) char m_member0[4];
+	alignas(4) char m_member1[4];
+	alignas(4) char m_member2[8];
+	alignas(4) char m_member3[8];
+	alignas(4) char m_member4[4];
+	alignas(4) char m_member5[4];
+	alignas(4) char m_member6[64];
+	alignas(4) char m_member7[64];
+} Hush__Camera;
+
+void Hush__Camera_destroy(Hush__Camera **self);
+typedef struct Hush__Image {
+	alignas(8) char m_member0[24];
+	alignas(4) char m_member1[4];
+	alignas(4) char m_member2[4];
+	alignas(4) char m_member3[4];
+	alignas(4) char m_member4[4];
+} Hush__Image;
+
+void Hush__Image_destroy(Hush__Image **self);
+typedef struct Hush__TextureComponent {
+	alignas(8) char m_member0[8];
+	alignas(8) char m_member1[8];
+	alignas(1) char m_member2[1];
+} Hush__TextureComponent;
+
+void Hush__TextureComponent_destroy(Hush__TextureComponent **self);
+typedef struct Hush__MeshReference {
+	alignas(8) char m_member0[24];
+	alignas(8) char m_member1[24];
+	alignas(8) char m_member2[24];
+	alignas(8) char m_member3[64];
+	alignas(4) char m_member4[4];
+} Hush__MeshReference;
+
+void Hush__MeshReference_destroy(Hush__MeshReference **self);
+extern void Hush__Reflection__TypeInfo__SetSize(Hush__Reflection__TypeInfo *self, size_t size);
+extern void Hush__Reflection__TypeInfo__SetAlignment(Hush__Reflection__TypeInfo *self, size_t alignment);
+extern Hush__Reflection__ERegisterClassError Hush__Reflection__ReflectionDB__RegisterClass(Hush__Reflection__ReflectionDB *self, Hush__Reflection__TypeInfo typeInfo, Hush__ModuleHandle module);
 extern Hush__Entity_EntityId Hush__Entity__RegisterComponentRaw(Hush__Entity *self, const Hush__ComponentTraits__ComponentInfo * desc);
 extern void * Hush__Entity__AddComponentRaw(Hush__Entity *self, Hush__Entity_EntityId componentId);
 extern void * Hush__Entity__GetComponentRaw(Hush__Entity *self, Hush__Entity_EntityId componentId);
@@ -608,6 +685,8 @@ extern void Hush__Entity__AddChild(Hush__Entity *self, const Hush__Entity * chil
 extern int32_t Hush__Entity__GetChildCount(Hush__Entity *self);
 extern void Hush__Entity__AddRelationship(Hush__Entity *self, const Hush__Entity * relationship, const Hush__Entity * target);
 extern Hush__Entity_EntityId Hush__Entity__GetId(Hush__Entity *self);
+extern void Hush__Entity__GetKey(Hush__Entity *self, char *bufferData, const size_t bufferSize);
+extern void Hush__Entity__QueryName(Hush__Entity *self, char *bufferData, const size_t bufferSize);
 extern bool Hush__Entity__IsAlive(Hush__Entity *self);
 extern bool Hush__RawQuery__QueryIterator__Next(Hush__RawQuery__QueryIterator *self);
 extern void Hush__RawQuery__QueryIterator__Skip(Hush__RawQuery__QueryIterator *self);
@@ -624,28 +703,45 @@ extern void Hush__impl__QueryBuilderImpl__Without(uint8_t * queryDesc, uint8_t *
 extern void Hush__impl__QueryBuilderImpl__WithOptional(uint8_t * queryDesc, uint8_t * termCountRef, Hush__Entity_EntityId term);
 extern Hush__RawQuery Hush__impl__QueryBuilderImpl__InitQuery(Hush__Scene * scene, const uint8_t * queryDesc);
 extern uint8_t * Hush__OpaqueQueryDescriptor__data(Hush__OpaqueQueryDescriptor *self);
-extern void Hush__Scene__RemoveSystem(Hush__Scene *self, char *nameData, const size_t nameSize);
+extern void Hush__Scene__RemoveSystem(Hush__Scene *self, const char *nameData, const size_t nameSize);
 extern Hush__Entity Hush__Scene__CreateEntity(Hush__Scene *self);
-extern Hush__Entity Hush__Scene__CreateEntityWithName(Hush__Scene *self, char *nameData, const size_t nameSize);
-extern Hush__Entity Hush__Scene__CreateEntityWithKey(Hush__Scene *self, char *keyData, const size_t keySize);
+extern Hush__Entity Hush__Scene__CreateEntityWithName(Hush__Scene *self, const char *nameData, const size_t nameSize);
+extern Hush__Entity Hush__Scene__CreateEntityWithKey(Hush__Scene *self, const char *keyData, const size_t keySize);
 extern void Hush__Scene__AddComponentObserverRaw(Hush__Scene *self, Hush__Entity_EntityId componentId, size_t componentSize, Hush__EComponentObserverType observerType, Hush__ObserverCallback_t callback);
 extern void Hush__Scene__DestroyEntity(Hush__Scene *self, Hush__Entity * entity);
 extern Hush__Entity Hush__Scene__EntityFromIdUnchecked(Hush__Scene *self, Hush__Entity_EntityId id);
 extern Hush__Entity_EntityId Hush__Scene__RegisterComponentRaw(Hush__Scene *self, const Hush__ComponentTraits__ComponentInfo * desc);
 extern void Hush__Scene__MarkComponentToggleableRaw(Hush__Scene *self, Hush__Entity_EntityId id);
-extern Hush__Entity_EntityId Hush__Scene__Lookup(Hush__Scene *self, char *tagData, const size_t tagSize);
+extern Hush__Entity_EntityId Hush__Scene__Lookup(Hush__Scene *self, const char *tagData, const size_t tagSize);
 extern Hush__RawQuery Hush__Scene__CreateRawQuery(Hush__Scene *self, Hush__Entity_EntityId *componentsData, const size_t componentsSize, Hush__RawQuery__ECacheMode cacheMode);
 extern Hush__Scene * Hush__HushEngine__GetScene(Hush__HushEngine *self);
 extern Hush__HushEngine__EError Hush__HushEngine__LoadScene(Hush__HushEngine *self, Hush__Scene * scene);
+extern bool Hush__Modules__SetForeignSystemRuntimeOps(Hush__HushEngine * engine, Hush__ModuleHandle module, const void * ops);
+extern bool Hush__Modules__RegisterForeignSystem(Hush__HushEngine * engine, Hush__ModuleHandle module, const void * descriptor);
+extern bool Hush__Modules__AddSystemToScene(Hush__HushEngine * engine, Hush__Scene * scene, Hush__ModuleHandle module, uint64_t typeId);
+extern bool Hush__Modules__HasReflectedType(Hush__HushEngine * engine, uint64_t typeId);
+extern bool Hush__Modules__GetReflectedTypeOwner(Hush__HushEngine * engine, uint64_t typeId, Hush__ModuleHandle * owner);
+extern uint32_t Hush__Modules__GetReflectedTypeNameLength(Hush__HushEngine * engine, uint64_t typeId);
+extern bool Hush__Modules__CopyReflectedTypeName(Hush__HushEngine * engine, uint64_t typeId, char * destination, uint32_t destinationSize);
+extern bool Hush__Modules__HasReflectedTypeMetadata(Hush__HushEngine * engine, uint64_t typeId, const char * keyData, size_t keySize);
+extern uint32_t Hush__Modules__GetReflectedTypeMetadataValueLength(Hush__HushEngine * engine, uint64_t typeId, const char * keyData, size_t keySize);
+extern bool Hush__Modules__CopyReflectedTypeMetadataValue(Hush__HushEngine * engine, uint64_t typeId, const char * keyData, size_t keySize, char * destination, uint32_t destinationSize);
 extern void Hush__Transform__SetPosition(Hush__Transform *self, Vector3 position);
 extern Vector3 * Hush__Transform__GetPosition(Hush__Transform *self);
 extern Vector3 Hush__Transform__GetPositionValue(Hush__Transform *self);
 extern void Hush__Transform__SetScale(Hush__Transform *self, Vector3 scale);
+extern Vector3 Hush__Transform__GetScale(Hush__Transform *self);
+extern void Hush__Transform__SetRotationQuat(Hush__Transform *self, const Quat * rotationQuat);
+extern Quat Hush__Transform__GetRotationQuat(Hush__Transform *self);
 extern void Hush__Transform__SetEulerAngles(Hush__Transform *self, const Vector3 * euler);
 extern Vector3 Hush__Transform__GetEulerAngles(Hush__Transform *self);
 extern Vector3 Hush__Transform__Forward(Hush__Transform *self);
 extern Vector3 Hush__Transform__Up(Hush__Transform *self);
 extern Vector3 Hush__Transform__Right(Hush__Transform *self);
+extern Matrix4 Hush__Transform__GetTransformationMatrix(Hush__Transform *self);
+extern void Hush__Transform__GetTransformationMatrixUnsafe(Hush__Transform *self, float * outMatrix, size_t count);
+extern Matrix4 Hush__Transform__XForm(Hush__Transform *self, const Hush__Transform * other);
+extern Matrix4 Hush__Transform__InvXForm(Hush__Transform *self, const Hush__Transform * other);
 extern bool Hush__InputManager__IsKeyDown(Hush__EKeyCode key);
 extern bool Hush__InputManager__IsKeyDownThisFrame(Hush__EKeyCode key);
 extern bool Hush__InputManager__IsKeyUp(Hush__EKeyCode key);
@@ -655,7 +751,15 @@ extern bool Hush__InputManager__FetchCharThisFrame(char * outChar);
 extern Vector2 Hush__InputManager__GetMousePosition(void);
 extern Vector2 Hush__InputManager__GetMouseAcceleration(void);
 extern void Hush__InputManager__SetCursorLock(Hush__ECursorLockMode lockMode);
+extern Vector3 Hush__Camera__ScreenToWorldPos(Hush__Camera *self, Matrix4 viewMatrix, Vector2 mousePos, Vector3 * outDirection);
+extern Vector3 Hush__Camera__ScreenToWorldPosUnsafe(Hush__Camera *self, float * viewMatrix, Vector2 mousePos, Vector3 * outDirection);
+extern Vector3 Hush__Camera__ProjectPlanePosition(Hush__Camera *self, Vector3 origin, Vector3 direction, float height);
+extern float Hush__Camera__GetFarPlane(Hush__Camera *self);
+extern void Hush__MeshReference__CalculateBounds(Hush__MeshReference *self, Vector3 * outCenter, Vector3 * outSize);
 typedef struct HushFuncPtrTable {
+	void (*HushFuncPtr_Hush__Reflection__TypeInfo__SetSize)(Hush__Reflection__TypeInfo *self, size_t);
+	void (*HushFuncPtr_Hush__Reflection__TypeInfo__SetAlignment)(Hush__Reflection__TypeInfo *self, size_t);
+	Hush__Reflection__ERegisterClassError (*HushFuncPtr_Hush__Reflection__ReflectionDB__RegisterClass)(Hush__Reflection__ReflectionDB *self, Hush__Reflection__TypeInfo, Hush__ModuleHandle);
 	Hush__Entity_EntityId (*HushFuncPtr_Hush__Entity__RegisterComponentRaw)(Hush__Entity *self, const Hush__ComponentTraits__ComponentInfo *);
 	void * (*HushFuncPtr_Hush__Entity__AddComponentRaw)(Hush__Entity *self, Hush__Entity_EntityId);
 	void * (*HushFuncPtr_Hush__Entity__GetComponentRaw)(Hush__Entity *self, Hush__Entity_EntityId);
@@ -668,6 +772,8 @@ typedef struct HushFuncPtrTable {
 	int32_t (*HushFuncPtr_Hush__Entity__GetChildCount)(Hush__Entity *self);
 	void (*HushFuncPtr_Hush__Entity__AddRelationship)(Hush__Entity *self, const Hush__Entity *, const Hush__Entity *);
 	Hush__Entity_EntityId (*HushFuncPtr_Hush__Entity__GetId)(Hush__Entity *self);
+	void (*HushFuncPtr_Hush__Entity__GetKey)(Hush__Entity *self, char*, const size_t bufferSize);
+	void (*HushFuncPtr_Hush__Entity__QueryName)(Hush__Entity *self, char*, const size_t bufferSize);
 	bool (*HushFuncPtr_Hush__Entity__IsAlive)(Hush__Entity *self);
 	bool (*HushFuncPtr_Hush__RawQuery__QueryIterator__Next)(Hush__RawQuery__QueryIterator *self);
 	void (*HushFuncPtr_Hush__RawQuery__QueryIterator__Skip)(Hush__RawQuery__QueryIterator *self);
@@ -684,28 +790,45 @@ typedef struct HushFuncPtrTable {
 	void (*HushFuncPtr_Hush__impl__QueryBuilderImpl__WithOptional)(uint8_t *, uint8_t *, Hush__Entity_EntityId);
 	Hush__RawQuery (*HushFuncPtr_Hush__impl__QueryBuilderImpl__InitQuery)(Hush__Scene *, const uint8_t *);
 	uint8_t * (*HushFuncPtr_Hush__OpaqueQueryDescriptor__data)(Hush__OpaqueQueryDescriptor *self);
-	void (*HushFuncPtr_Hush__Scene__RemoveSystem)(Hush__Scene *self, char*, const size_t nameSize);
+	void (*HushFuncPtr_Hush__Scene__RemoveSystem)(Hush__Scene *self, const char*, const size_t nameSize);
 	Hush__Entity (*HushFuncPtr_Hush__Scene__CreateEntity)(Hush__Scene *self);
-	Hush__Entity (*HushFuncPtr_Hush__Scene__CreateEntityWithName)(Hush__Scene *self, char*, const size_t nameSize);
-	Hush__Entity (*HushFuncPtr_Hush__Scene__CreateEntityWithKey)(Hush__Scene *self, char*, const size_t keySize);
+	Hush__Entity (*HushFuncPtr_Hush__Scene__CreateEntityWithName)(Hush__Scene *self, const char*, const size_t nameSize);
+	Hush__Entity (*HushFuncPtr_Hush__Scene__CreateEntityWithKey)(Hush__Scene *self, const char*, const size_t keySize);
 	void (*HushFuncPtr_Hush__Scene__AddComponentObserverRaw)(Hush__Scene *self, Hush__Entity_EntityId, size_t, Hush__EComponentObserverType, Hush__ObserverCallback_t);
 	void (*HushFuncPtr_Hush__Scene__DestroyEntity)(Hush__Scene *self, Hush__Entity *);
 	Hush__Entity (*HushFuncPtr_Hush__Scene__EntityFromIdUnchecked)(Hush__Scene *self, Hush__Entity_EntityId);
 	Hush__Entity_EntityId (*HushFuncPtr_Hush__Scene__RegisterComponentRaw)(Hush__Scene *self, const Hush__ComponentTraits__ComponentInfo *);
 	void (*HushFuncPtr_Hush__Scene__MarkComponentToggleableRaw)(Hush__Scene *self, Hush__Entity_EntityId);
-	Hush__Entity_EntityId (*HushFuncPtr_Hush__Scene__Lookup)(Hush__Scene *self, char*, const size_t tagSize);
+	Hush__Entity_EntityId (*HushFuncPtr_Hush__Scene__Lookup)(Hush__Scene *self, const char*, const size_t tagSize);
 	Hush__RawQuery (*HushFuncPtr_Hush__Scene__CreateRawQuery)(Hush__Scene *self, Hush__Entity_EntityId*, const size_t componentsSize, Hush__RawQuery__ECacheMode);
 	Hush__Scene * (*HushFuncPtr_Hush__HushEngine__GetScene)(Hush__HushEngine *self);
 	Hush__HushEngine__EError (*HushFuncPtr_Hush__HushEngine__LoadScene)(Hush__HushEngine *self, Hush__Scene *);
+	bool (*HushFuncPtr_Hush__Modules__SetForeignSystemRuntimeOps)(Hush__HushEngine *, Hush__ModuleHandle, const void *);
+	bool (*HushFuncPtr_Hush__Modules__RegisterForeignSystem)(Hush__HushEngine *, Hush__ModuleHandle, const void *);
+	bool (*HushFuncPtr_Hush__Modules__AddSystemToScene)(Hush__HushEngine *, Hush__Scene *, Hush__ModuleHandle, uint64_t);
+	bool (*HushFuncPtr_Hush__Modules__HasReflectedType)(Hush__HushEngine *, uint64_t);
+	bool (*HushFuncPtr_Hush__Modules__GetReflectedTypeOwner)(Hush__HushEngine *, uint64_t, Hush__ModuleHandle *);
+	uint32_t (*HushFuncPtr_Hush__Modules__GetReflectedTypeNameLength)(Hush__HushEngine *, uint64_t);
+	bool (*HushFuncPtr_Hush__Modules__CopyReflectedTypeName)(Hush__HushEngine *, uint64_t, char *, uint32_t);
+	bool (*HushFuncPtr_Hush__Modules__HasReflectedTypeMetadata)(Hush__HushEngine *, uint64_t, const char *, size_t);
+	uint32_t (*HushFuncPtr_Hush__Modules__GetReflectedTypeMetadataValueLength)(Hush__HushEngine *, uint64_t, const char *, size_t);
+	bool (*HushFuncPtr_Hush__Modules__CopyReflectedTypeMetadataValue)(Hush__HushEngine *, uint64_t, const char *, size_t, char *, uint32_t);
 	void (*HushFuncPtr_Hush__Transform__SetPosition)(Hush__Transform *self, Vector3);
 	Vector3 * (*HushFuncPtr_Hush__Transform__GetPosition)(Hush__Transform *self);
 	Vector3 (*HushFuncPtr_Hush__Transform__GetPositionValue)(Hush__Transform *self);
 	void (*HushFuncPtr_Hush__Transform__SetScale)(Hush__Transform *self, Vector3);
+	Vector3 (*HushFuncPtr_Hush__Transform__GetScale)(Hush__Transform *self);
+	void (*HushFuncPtr_Hush__Transform__SetRotationQuat)(Hush__Transform *self, const Quat *);
+	Quat (*HushFuncPtr_Hush__Transform__GetRotationQuat)(Hush__Transform *self);
 	void (*HushFuncPtr_Hush__Transform__SetEulerAngles)(Hush__Transform *self, const Vector3 *);
 	Vector3 (*HushFuncPtr_Hush__Transform__GetEulerAngles)(Hush__Transform *self);
 	Vector3 (*HushFuncPtr_Hush__Transform__Forward)(Hush__Transform *self);
 	Vector3 (*HushFuncPtr_Hush__Transform__Up)(Hush__Transform *self);
 	Vector3 (*HushFuncPtr_Hush__Transform__Right)(Hush__Transform *self);
+	Matrix4 (*HushFuncPtr_Hush__Transform__GetTransformationMatrix)(Hush__Transform *self);
+	void (*HushFuncPtr_Hush__Transform__GetTransformationMatrixUnsafe)(Hush__Transform *self, float *, size_t);
+	Matrix4 (*HushFuncPtr_Hush__Transform__XForm)(Hush__Transform *self, const Hush__Transform *);
+	Matrix4 (*HushFuncPtr_Hush__Transform__InvXForm)(Hush__Transform *self, const Hush__Transform *);
 	bool (*HushFuncPtr_Hush__InputManager__IsKeyDown)(Hush__EKeyCode);
 	bool (*HushFuncPtr_Hush__InputManager__IsKeyDownThisFrame)(Hush__EKeyCode);
 	bool (*HushFuncPtr_Hush__InputManager__IsKeyUp)(Hush__EKeyCode);
@@ -715,6 +838,11 @@ typedef struct HushFuncPtrTable {
 	Vector2 (*HushFuncPtr_Hush__InputManager__GetMousePosition)(void);
 	Vector2 (*HushFuncPtr_Hush__InputManager__GetMouseAcceleration)(void);
 	void (*HushFuncPtr_Hush__InputManager__SetCursorLock)(Hush__ECursorLockMode);
+	Vector3 (*HushFuncPtr_Hush__Camera__ScreenToWorldPos)(Hush__Camera *self, Matrix4, Vector2, Vector3 *);
+	Vector3 (*HushFuncPtr_Hush__Camera__ScreenToWorldPosUnsafe)(Hush__Camera *self, float *, Vector2, Vector3 *);
+	Vector3 (*HushFuncPtr_Hush__Camera__ProjectPlanePosition)(Hush__Camera *self, Vector3, Vector3, float);
+	float (*HushFuncPtr_Hush__Camera__GetFarPlane)(Hush__Camera *self);
+	void (*HushFuncPtr_Hush__MeshReference__CalculateBounds)(Hush__MeshReference *self, Vector3 *, Vector3 *);
 
 } HushFuncPtrTable;
 
